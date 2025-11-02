@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: gravital-postgres
+    environment:
+      POSTGRES_DB: gravital
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: gravital-redis
+    command: redis-server --requirepass redis123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Gravital Core（需要先构建镜像）
+  # gravital-core:
+  #   build: .
+  #   container_name: gravital-core
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - DB_HOST=postgres
+  #     - DB_PORT=5432
+  #     - DB_USER=postgres
+  #     - DB_PASSWORD=postgres
+  #     - DB_NAME=gravital
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #     - REDIS_PASSWORD=redis123
+  #   volumes:
+  #     - ./config:/app/config
+  #     - ./logs:/app/logs
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  # VictoriaMetrics（时序数据库）
+  # victoria-metrics:
+  #   image: victoriametrics/victoria-metrics:latest
+  #   container_name: gravital-victoria
+  #   ports:
+  #     - "8428:8428"
+  #   volumes:
+  #     - victoria_data:/victoria-metrics-data
+  #   command:
+  #     - '--storageDataPath=/victoria-metrics-data'
+  #     - '--httpListenAddr=:8428'
+  #   restart: unless-stopped
+
+  # # Grafana（可视化）
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: gravital-grafana
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #     - GF_INSTALL_PLUGINS=
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  # victoria_data:
+  # grafana_data:
+
+networks:
+  default:
+    name: gravital-network
+

@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+#   # Orbital Sentinel - 采集端
+#   sentinel:
+#     build: ..
+#     container_name: orbital-sentinel
+#     volumes:
+#       - ./config.yaml:/app/config.yaml
+#       - ./plugins:/app/plugins
+#       - sentinel-data:/app/data
+#       - sentinel-logs:/app/logs
+#     environment:
+#       - API_TOKEN=${API_TOKEN:-your-api-token}
+#       - CH_PASSWORD=${CH_PASSWORD:-clickhouse-password}
+#     depends_on:
+#       - prometheus
+#       - victoria-metrics
+#       - clickhouse
+#     networks:
+#       - monitoring
+#     restart: unless-stopped
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-remote-write-receiver'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # VictoriaMetrics
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: victoria-metrics
+    command:
+      - '--storageDataPath=/victoria-metrics-data'
+      - '--httpListenAddr=:8428'
+      - '--retentionPeriod=12'
+    volumes:
+      - victoria-data:/victoria-metrics-data
+    ports:
+      - "8428:8428"
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # ClickHouse
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    environment:
+      - CLICKHOUSE_DB=metrics
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=${CH_PASSWORD:-clickhouse-password}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    ports:
+      - "8123:8123"  # HTTP
+      - "9000:9000"  # Native
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - victoria-metrics
+      - clickhouse
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+volumes:
+  sentinel-data:
+  sentinel-logs:
+  prometheus-data:
+  victoria-data:
+  clickhouse-data:
+  clickhouse-logs:
+  grafana-data:
+
+networks:
+  monitoring:
+    driver: bridge
+

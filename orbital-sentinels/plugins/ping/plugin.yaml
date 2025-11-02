@@ -1,0 +1,57 @@
+meta:
+  name: "ping"
+  version: "1.0.0"
+  description: "ICMP Ping 连通性检测插件"
+  author: "Celestial Team"
+  device_types:
+    - server
+    - switch
+    - router
+    - any
+
+device_fields:
+  - name: host
+    type: string
+    required: true
+    description: "目标主机 IP 地址或域名"
+    validation: "^[a-zA-Z0-9.-]+$"
+  
+  - name: count
+    type: int
+    required: false
+    default: 4
+    description: "Ping 次数"
+    min: 1
+    max: 100
+  
+  - name: timeout
+    type: int
+    required: false
+    default: 5
+    description: "超时时间（秒）"
+    min: 1
+    max: 60
+
+config_fields:
+  - name: interval
+    type: int
+    required: false
+    default: 60
+    description: "采集间隔（秒）"
+
+metrics:
+  - name: ping_reachable
+    description: "是否可达 (1=可达, 0=不可达)"
+    type: gauge
+    unit: ""
+  
+  - name: ping_rtt_ms
+    description: "往返时延（毫秒）"
+    type: gauge
+    unit: milliseconds
+  
+  - name: ping_packet_loss
+    description: "丢包率"
+    type: gauge
+    unit: percent
+

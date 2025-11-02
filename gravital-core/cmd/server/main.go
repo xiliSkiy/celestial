@@ -1,0 +1,144 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
+	"github.com/celestial/gravital-core/internal/api/router"
+	"github.com/celestial/gravital-core/internal/pkg/cache"
+	"github.com/celestial/gravital-core/internal/pkg/config"
+	"github.com/celestial/gravital-core/internal/pkg/database"
+	"github.com/celestial/gravital-core/internal/pkg/logger"
+)
+
+var (
+	Version   = "dev"
+	BuildTime = "unknown"
+	GoVersion = "unknown"
+)
+
+var (
+	configPath = flag.String("c", "config/config.yaml", "配置文件路径")
+	showVersion = flag.Bool("v", false, "显示版本信息")
+)
+
+func main() {
+	flag.Parse()
+
+	// 显示版本信息
+	if *showVersion {
+		fmt.Printf("Gravital Core\n")
+		fmt.Printf("Version: %s\n", Version)
+		fmt.Printf("Build Time: %s\n", BuildTime)
+		fmt.Printf("Go Version: %s\n", GoVersion)
+		return
+	}
+
+	// 加载配置
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Printf("Failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 初始化日志
+	if err := logger.Init(&logger.Config{
+		Level:      cfg.Logging.Level,
+		Format:     cfg.Logging.Format,
+		Output:     cfg.Logging.Output,
+		FilePath:   cfg.Logging.FilePath,
+		MaxSize:    cfg.Logging.MaxSize,
+		MaxBackups: cfg.Logging.MaxBackups,
+		MaxAge:     cfg.Logging.MaxAge,
+		Compress:   cfg.Logging.Compress,
+	}); err != nil {
+		fmt.Printf("Failed to init logger: %v\n", err)
+		os.Exit(1)
+	}
+	defer logger.Sync()
+
+	logger.Info("Starting Gravital Core",
+		zap.String("version", Version),
+		zap.String("build_time", BuildTime),
+	)
+
+	// 初始化数据库
+	logger.Info("Connecting to database...")
+	db, err := database.Init(&cfg.Database)
+	if err != nil {
+		logger.Fatal("Failed to connect database", zap.Error(err))
+	}
+	defer database.Close()
+	logger.Info("Database connected")
+
+	// 初始化 Redis
+	logger.Info("Connecting to Redis...")
+	if _, err := cache.Init(&cfg.Redis); err != nil {
+		logger.Fatal("Failed to connect Redis", zap.Error(err))
+	}
+	defer cache.Close()
+	logger.Info("Redis connected")
+
+	// 设置 Gin 模式
+	gin.SetMode(cfg.Server.Mode)
+
+	// 创建路由
+	r, forwarderService := router.Setup(cfg, db)
+
+	// 启动转发服务
+	logger.Info("Starting forwarder service...")
+	if err := forwarderService.Start(); err != nil {
+		logger.Fatal("Failed to start forwarder service", zap.Error(err))
+	}
+	logger.Info("Forwarder service started")
+
+	// 创建 HTTP 服务器
+	srv := &http.Server{
+		Addr:           cfg.Server.GetAddr(),
+		Handler:        r,
+		ReadTimeout:    cfg.Server.ReadTimeout,
+		WriteTimeout:   cfg.Server.WriteTimeout,
+		MaxHeaderBytes: cfg.Server.MaxHeaderBytes,
+	}
+
+	// 启动服务器
+	go func() {
+		logger.Info("Server starting", zap.String("addr", srv.Addr))
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Fatal("Failed to start server", zap.Error(err))
+		}
+	}()
+
+	// 等待中断信号
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("Shutting down server...")
+
+	// 优雅关闭
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 停止转发服务
+	logger.Info("Stopping forwarder service...")
+	if err := forwarderService.Stop(); err != nil {
+		logger.Error("Failed to stop forwarder service", zap.Error(err))
+	}
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error("Server forced to shutdown", zap.Error(err))
+	}
+
+	logger.Info("Server exited")
+}
+

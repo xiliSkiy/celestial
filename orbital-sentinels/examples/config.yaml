@@ -1,0 +1,76 @@
+# Orbital Sentinel 示例配置 - 直连模式
+sentinel:
+  id: ""
+  name: "sentinel-example"
+  region: "docker-compose"
+  labels:
+    env: development
+    example: "true"
+
+# 中心端配置（混合模式时使用）
+core:
+  url: "http://gravital-core:8080"
+  api_token: "${API_TOKEN}"
+  insecure_skip_verify: true
+
+# 心跳配置
+heartbeat:
+  interval: 30s
+  timeout: 10s
+  retry_times: 3
+
+# 采集器配置
+collector:
+  worker_pool_size: 5
+  task_fetch_interval: 60s
+  max_execution_time: 300s
+
+# 缓冲配置
+buffer:
+  type: "memory"
+  size: 10000
+  flush_interval: 10s
+
+# 发送器配置 - 直连模式
+sender:
+  mode: "direct"  # 可选: core, direct, hybrid
+  batch_size: 1000
+  flush_interval: 10s
+  timeout: 30s
+  retry_times: 3
+  retry_interval: 5s
+
+  # 直连配置
+  direct:
+    # Prometheus 配置
+    prometheus:
+      enabled: true
+      url: "http://prometheus:9090/api/v1/write"
+    
+    # VictoriaMetrics 配置
+    victoria_metrics:
+      enabled: true
+      url: "http://victoria-metrics:8428/api/v1/write"
+    
+    # ClickHouse 配置
+    clickhouse:
+      enabled: true
+      dsn: "tcp://clickhouse:9000/metrics?username=default&password=${CH_PASSWORD}&compress=true"
+      table_name: "metrics"
+      batch_size: 1000
+
+# 插件配置
+plugins:
+  directory: "./plugins"
+  auto_reload: false
+
+# 日志配置
+logging:
+  level: info
+  format: json
+  output: both
+  file_path: "./logs/sentinel.log"
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+

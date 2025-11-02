@@ -1,0 +1,116 @@
+# Gravital Core 配置文件
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "release"                    # debug, release, production
+  read_timeout: 60s
+  write_timeout: 60s
+  max_header_bytes: 1048576          # 1MB
+
+database:
+  host: "localhost"
+  port: 5432
+  database: "gravital"
+  username: "postgres"
+  password: "postgres"
+  sslmode: "disable"
+  max_open_conns: 100
+  max_idle_conns: 10
+  conn_max_lifetime: 3600s           # 1 hour
+  log_level: "warn"                  # silent, error, warn, info
+
+redis:
+  host: "localhost"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 5
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+auth:
+  jwt_secret: "your-secret-key-change-in-production"
+  jwt_expire: 24h
+  refresh_expire: 168h              # 7 days
+  bcrypt_cost: 10
+
+alert:
+  evaluation_interval: 10s
+  notification_timeout: 30s
+  max_concurrent_evaluations: 100
+  retention_days: 90                # 告警历史保留天数
+
+forwarder:
+  buffer_size: 10000
+  batch_size: 1000
+  flush_interval: 10s
+  max_retries: 3
+  retry_interval: 5s
+  
+  # 转发器配置
+  targets:
+    - name: "prometheus-prod"
+      type: "prometheus"
+      enabled: true
+      endpoint: "http://localhost:9090/api/v1/write"
+      timeout: 30s
+      batch_size: 1000
+      
+    - name: "victoria-metrics"
+      type: "victoria-metrics"
+      enabled: false
+      endpoint: "http://localhost:8428/api/v1/write"
+      timeout: 30s
+      batch_size: 5000
+      
+    - name: "clickhouse"
+      type: "clickhouse"
+      enabled: false
+      dsn: "tcp://localhost:9000/metrics?username=default&password="
+      table: "metrics.data"
+      batch_size: 10000
+
+sentinel:
+  heartbeat_timeout: 60s
+  offline_threshold: 180s            # 3分钟无心跳视为离线
+  task_fetch_interval: 60s
+  auto_assign: true                  # 自动分配任务
+
+scheduler:
+  worker_pool_size: 50
+  task_queue_size: 1000
+  default_interval: 60s
+  default_timeout: 30s
+  default_retry: 3
+
+logging:
+  level: "info"                      # debug, info, warn, error
+  format: "json"                     # json, console
+  output: "both"                     # stdout, file, both
+  file_path: "./logs/gravital.log"
+  max_size: 100                      # MB
+  max_backups: 7
+  max_age: 30                        # days
+  compress: true
+
+# Grafana 集成
+grafana:
+  enabled: false
+  url: "http://localhost:3000"
+  admin_user: "admin"
+  admin_password: "admin"
+  org_id: 1
+
+# 系统配置
+system:
+  max_devices: 10000
+  max_sentinels: 1000
+  max_tasks_per_sentinel: 1000
+  data_retention_days: 30
+  enable_metrics: true
+  enable_profiling: false
+  profiling_port: 6060
+

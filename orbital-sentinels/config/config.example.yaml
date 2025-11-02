@@ -1,0 +1,76 @@
+# Orbital Sentinel 配置文件示例
+
+sentinel:
+  id: ""                           # 留空则自动生成
+  name: "sentinel-office-1"
+  region: "office-beijing"
+  labels:
+    env: production
+    datacenter: dc1
+
+core:
+  url: "https://gravital-core.example.com"
+  api_token: "${API_TOKEN}"
+  insecure_skip_verify: false
+
+heartbeat:
+  interval: 30s                    # 心跳间隔
+  timeout: 10s                     # 心跳超时
+  retry_times: 3
+
+collector:
+  worker_pool_size: 10             # 并发采集数
+  task_fetch_interval: 60s         # 任务拉取间隔
+  max_execution_time: 300s         # 单个任务最大执行时间
+
+buffer:
+  type: "memory"                   # memory, disk
+  size: 10000                      # 缓冲区大小
+  flush_interval: 10s
+  disk_path: "./data/buffer"       # disk 模式下的路径
+
+sender:
+  mode: "core"                     # core, direct, hybrid
+  batch_size: 1000
+  timeout: 30s
+  retry_times: 3
+  retry_interval: 5s
+  
+  # 直连模式配置
+  direct:
+    prometheus:
+      enabled: false
+      url: "http://localhost:9090/api/v1/write"
+      username: ""                   # 可选：基本认证用户名
+      password: ""                   # 可选：基本认证密码
+      headers:                       # 可选：自定义请求头
+        X-Scope-OrgID: "tenant1"
+    
+    victoria_metrics:
+      enabled: false
+      url: "http://localhost:8428/api/v1/write"
+      username: ""                   # 可选：基本认证用户名
+      password: ""                   # 可选：基本认证密码
+      headers:                       # 可选：自定义请求头
+        X-Scope-OrgID: "tenant1"
+    
+    clickhouse:
+      enabled: false
+      dsn: "tcp://localhost:9000/metrics?username=default&password=clickhouse-password&compress=true"
+      table_name: "metrics"          # 表名，默认为 metrics
+      batch_size: 1000               # 批量插入大小
+
+plugins:
+  directory: "./plugins"
+  auto_reload: true
+  reload_interval: 300s
+
+logging:
+  level: info                      # debug, info, warn, error
+  format: json                     # text, json
+  output: stdout                   # stdout, file, both
+  file_path: "./logs/sentinel.log"
+  max_size: 100                    # MB
+  max_backups: 7
+  max_age: 30                      # days
+

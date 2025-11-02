@@ -1,0 +1,112 @@
+# Gravital Core 完整配置文件
+# 包含所有转发器的配置
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "release"
+  read_timeout: 60s
+  write_timeout: 60s
+  max_header_bytes: 1048576
+
+database:
+  host: "postgres"
+  port: 5432
+  database: "gravital"
+  username: "postgres"
+  password: "postgres"
+  sslmode: "disable"
+  max_open_conns: 100
+  max_idle_conns: 10
+  conn_max_lifetime: 3600s
+  log_level: "warn"
+
+redis:
+  host: "redis"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 5
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+auth:
+  jwt_secret: "change-this-secret-in-production"
+  jwt_expire: 24h
+  refresh_expire: 168h
+  bcrypt_cost: 10
+
+alert:
+  evaluation_interval: 10s
+  notification_timeout: 30s
+  max_concurrent_evaluations: 100
+  retention_days: 90
+
+# 数据转发配置
+forwarder:
+  buffer_size: 10000
+  batch_size: 1000
+  flush_interval: 10s
+  max_retries: 3
+  retry_interval: 5s
+  
+  # 转发器目标
+  targets:
+    # VictoriaMetrics - 推荐用于实时查询
+    - name: "victoria-prod"
+      type: "victoria-metrics"
+      enabled: true
+      endpoint: "http://victoria:8428/api/v1/write"
+      timeout: 30s
+      batch_size: 5000
+      
+    # ClickHouse - 用于长期存储和分析
+    - name: "clickhouse-analytics"
+      type: "clickhouse"
+      enabled: true
+      dsn: "tcp://clickhouse:9000/metrics?username=default&password="
+      table: "metrics.data"
+      timeout: 30s
+      batch_size: 10000
+
+sentinel:
+  heartbeat_timeout: 60s
+  offline_threshold: 180s
+  task_fetch_interval: 60s
+  auto_assign: true
+
+scheduler:
+  worker_pool_size: 50
+  task_queue_size: 1000
+  default_interval: 60s
+  default_timeout: 30s
+  default_retry: 3
+
+logging:
+  level: "info"
+  format: "json"
+  output: "both"
+  file_path: "./logs/gravital.log"
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+  compress: true
+
+grafana:
+  enabled: true
+  url: "http://grafana:3000"
+  admin_user: "admin"
+  admin_password: "admin"
+  org_id: 1
+
+system:
+  max_devices: 10000
+  max_sentinels: 1000
+  max_tasks_per_sentinel: 100
+  data_retention_days: 90
+  enable_metrics: true
+  enable_profiling: false
+  profiling_port: 6060
+

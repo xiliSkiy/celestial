@@ -1,0 +1,193 @@
+# Orbital Sentinel 配置文件 - 本地任务模式
+# 适用于无中心端的独立部署场景
+
+sentinel:
+  id: ""                           # 留空则自动生成
+  name: "sentinel-standalone"
+  region: "local"
+  labels:
+    env: production
+    mode: standalone
+
+# 中心端配置（可选，Direct 模式下不需要）
+core:
+  url: ""
+  api_token: ""
+
+# 心跳配置（Direct 模式下心跳会失败，但不影响运行）
+heartbeat:
+  interval: 30s
+  timeout: 10s
+  retry_times: 3
+
+# 采集器配置
+collector:
+  worker_pool_size: 10             # 并发采集数
+  task_fetch_interval: 60s         # Direct 模式下此参数不使用
+  max_execution_time: 300s         # 单个任务最大执行时间
+
+# 缓冲配置
+buffer:
+  type: "memory"                   # memory, disk
+  size: 10000                      # 缓冲区大小
+  flush_interval: 10s
+  disk_path: "./data/buffer"       # disk 模式下的路径
+
+# 发送器配置 - Direct 模式
+sender:
+  mode: "direct"                   # 使用 direct 模式
+  batch_size: 1000
+  flush_interval: 10s              # 刷新间隔
+  timeout: 30s
+  retry_times: 3
+  retry_interval: 5s
+  
+  # 直连模式配置
+  direct:
+    prometheus:
+      enabled: true
+      url: "http://localhost:9090/api/v1/write"
+      username: ""                   # 可选：基本认证用户名
+      password: ""                   # 可选：基本认证密码
+      headers:                       # 可选：自定义请求头
+        # X-Scope-OrgID: "tenant1"
+    
+    victoria_metrics:
+      enabled: false
+      url: "http://localhost:8428/api/v1/write"
+      username: ""
+      password: ""
+    
+    clickhouse:
+      enabled: false
+      dsn: "tcp://localhost:9000/metrics?username=default&password=clickhouse-password&compress=true"
+      table_name: "metrics"
+      batch_size: 1000
+
+# 插件配置
+plugins:
+  directory: "./plugins"
+  auto_reload: false
+  reload_interval: 300s
+
+# 日志配置
+logging:
+  level: info                      # debug, info, warn, error
+  format: json                     # text, json
+  output: both                     # stdout, file, both
+  file_path: "./logs/sentinel.log"
+  max_size: 100                    # MB
+  max_backups: 7
+  max_age: 30                      # days
+
+# ============================================================
+# 本地任务配置
+# ============================================================
+tasks:
+  # 任务 1: 监控本地网关
+  - id: "ping-gateway"
+    device_id: "192.168.1.1"
+    plugin: "ping"
+    interval: "60s"                # 每 60 秒执行一次
+    timeout: "10s"                 # 超时时间
+    enabled: true                  # 是否启用
+    config:
+      host: "192.168.1.1"
+      count: 4
+      interval: "1s"
+      timeout: "5s"
+
+  # 任务 2: 监控 Google DNS
+  - id: "ping-google-dns"
+    device_id: "8.8.8.8"
+    plugin: "ping"
+    interval: "300s"               # 每 5 分钟执行一次
+    timeout: "10s"
+    enabled: true
+    config:
+      host: "8.8.8.8"
+      count: 4
+      interval: "1s"
+      timeout: "5s"
+
+  # 任务 3: 监控阿里云 DNS
+  - id: "ping-aliyun-dns"
+    device_id: "223.5.5.5"
+    plugin: "ping"
+    interval: "300s"               # 每 5 分钟执行一次
+    timeout: "10s"
+    enabled: true
+    config:
+      host: "223.5.5.5"
+      count: 4
+      interval: "1s"
+      timeout: "5s"
+
+  # 任务 4: 监控 Cloudflare DNS
+  - id: "ping-cloudflare-dns"
+    device_id: "1.1.1.1"
+    plugin: "ping"
+    interval: "300s"
+    timeout: "10s"
+    enabled: true
+    config:
+      host: "1.1.1.1"
+      count: 4
+      interval: "1s"
+      timeout: "5s"
+
+  # 任务 5: 监控内网服务器（示例 - 已禁用）
+  - id: "ping-server-1"
+    device_id: "192.168.1.10"
+    plugin: "ping"
+    interval: "60s"
+    timeout: "10s"
+    enabled: false                 # 禁用此任务
+    config:
+      host: "192.168.1.10"
+      count: 4
+      interval: "1s"
+      timeout: "5s"
+
+# ============================================================
+# 任务配置说明
+# ============================================================
+# 
+# 每个任务包含以下字段：
+# 
+# - id: 任务唯一标识符（必需）
+# - device_id: 设备ID，用于标识被监控的设备（必需）
+# - plugin: 使用的插件名称，如 "ping", "snmp", "http" 等（必需）
+# - interval: 执行间隔，支持格式：
+#   - "30s" - 30 秒
+#   - "1m"  - 1 分钟
+#   - "5m"  - 5 分钟
+#   - "1h"  - 1 小时
+# - timeout: 任务超时时间（可选，默认 30s）
+# - enabled: 是否启用此任务（必需）
+# - config: 插件特定的配置参数（必需）
+#
+# Ping 插件的 config 参数：
+# - host: 目标主机地址（必需）
+# - count: Ping 次数（可选，默认 4）
+# - interval: Ping 间隔（可选，默认 1s）
+# - timeout: Ping 超时（可选，默认 5s）
+#
+# ============================================================
+# 使用示例
+# ============================================================
+#
+# 1. 启动 Sentinel：
+#    ./bin/sentinel start -c config/config.local-tasks.yaml
+#
+# 2. 查看任务加载日志：
+#    tail -f logs/sentinel.log | grep "Loaded local task"
+#
+# 3. 查看任务执行日志：
+#    tail -f logs/sentinel.log | grep "Task succeeded"
+#
+# 4. 在 Prometheus 中查询数据：
+#    ping_rtt_ms{device_id="192.168.1.1"}
+#
+# ============================================================
+
