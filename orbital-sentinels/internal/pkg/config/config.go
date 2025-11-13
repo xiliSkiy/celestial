@@ -8,15 +8,16 @@ import (
 
 // Config 配置结构
 type Config struct {
-	Sentinel  SentinelConfig  `mapstructure:"sentinel"`
-	Core      CoreConfig      `mapstructure:"core"`
-	Heartbeat HeartbeatConfig `mapstructure:"heartbeat"`
-	Collector CollectorConfig `mapstructure:"collector"`
-	Buffer    BufferConfig    `mapstructure:"buffer"`
-	Sender    SenderConfig    `mapstructure:"sender"`
-	Plugins   PluginsConfig   `mapstructure:"plugins"`
-	Logging   LoggingConfig   `mapstructure:"logging"`
-	Tasks     []TaskConfig    `mapstructure:"tasks"` // 本地任务配置
+	Sentinel        SentinelConfig  `mapstructure:"sentinel"`
+	Core            CoreConfig      `mapstructure:"core"`
+	Heartbeat       HeartbeatConfig `mapstructure:"heartbeat"`
+	Collector       CollectorConfig `mapstructure:"collector"`
+	Buffer          BufferConfig    `mapstructure:"buffer"`
+	Sender          SenderConfig    `mapstructure:"sender"`
+	Plugins         PluginsConfig   `mapstructure:"plugins"`
+	Logging         LoggingConfig   `mapstructure:"logging"`
+	Tasks           []TaskConfig    `mapstructure:"tasks"`            // 本地任务配置
+	CredentialsPath string          `mapstructure:"credentials_path"` // 凭证文件路径
 }
 
 // SentinelConfig Sentinel 配置
@@ -31,6 +32,7 @@ type SentinelConfig struct {
 type CoreConfig struct {
 	URL                string `mapstructure:"url"`
 	APIToken           string `mapstructure:"api_token"`
+	RegistrationKey    string `mapstructure:"registration_key"`    // 注册密钥(可选)
 	InsecureSkipVerify bool   `mapstructure:"insecure_skip_verify"`
 }
 

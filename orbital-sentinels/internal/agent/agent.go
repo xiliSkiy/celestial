@@ -1,18 +1,22 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/celestial/orbital-sentinels/internal/buffer"
+	"github.com/celestial/orbital-sentinels/internal/credentials"
 	"github.com/celestial/orbital-sentinels/internal/heartbeat"
 	"github.com/celestial/orbital-sentinels/internal/pkg/config"
 	"github.com/celestial/orbital-sentinels/internal/pkg/logger"
 	"github.com/celestial/orbital-sentinels/internal/plugin"
+	"github.com/celestial/orbital-sentinels/internal/register"
 	"github.com/celestial/orbital-sentinels/internal/scheduler"
 	"github.com/celestial/orbital-sentinels/internal/sender"
 	ping "github.com/celestial/orbital-sentinels/plugins/ping"
@@ -56,17 +60,23 @@ func NewAgent(cfg *config.Config) *Agent {
 func (a *Agent) Start() error {
 	a.ctx, a.cancel = context.WithCancel(context.Background())
 
-	// 1. 初始化
+	// 1. 处理注册和凭证
+	a.setState(StateRegistering)
+	if err := a.handleRegistration(); err != nil {
+		logger.Warn("Failed to handle registration, will try to continue", zap.Error(err))
+	}
+
+	// 2. 初始化
 	a.setState(StateInitializing)
 	if err := a.initialize(); err != nil {
 		return fmt.Errorf("failed to initialize: %w", err)
 	}
 
-	// 2. 启动各组件
+	// 3. 启动各组件
 	a.setState(StateRunning)
 	a.startComponents()
 
-	// 3. 监听信号
+	// 4. 监听信号
 	a.handleSignals()
 
 	return nil
@@ -391,4 +401,112 @@ func (a *Agent) GetState() State {
 func generateSentinelID() string {
 	hostname, _ := os.Hostname()
 	return fmt.Sprintf("sentinel-%s-%d", hostname, time.Now().Unix())
+}
+
+// handleRegistration 处理注册和凭证
+func (a *Agent) handleRegistration() error {
+	// 1. 初始化凭证管理器
+	credsMgr := credentials.NewManager(a.config.CredentialsPath)
+
+	// 2. 尝试加载本地凭证
+	creds, err := credsMgr.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load credentials: %w", err)
+	}
+
+	// 3. 如果没有凭证或凭证无效,进行注册
+	if creds == nil || !creds.IsValid() {
+		logger.Info("No valid credentials found, attempting to register to core...")
+
+		// 检查是否配置了中心端 URL
+		if a.config.Core.URL == "" {
+			logger.Warn("Core URL not configured, skipping registration")
+			return nil
+		}
+
+		registerMgr := register.NewManager(
+			a.config.Core.URL,
+			a.config.Core.RegistrationKey,
+			credsMgr,
+		)
+
+		registerConfig := &register.Config{
+			Name:    a.config.Sentinel.Name,
+			Version: "1.0.0", // TODO: 从编译时注入
+			Region:  a.config.Sentinel.Region,
+			Labels:  a.config.Sentinel.Labels,
+		}
+
+		resp, err := registerMgr.RegisterWithRetry(a.ctx, registerConfig)
+		if err != nil {
+			logger.Warn("Failed to register to core, falling back to standalone mode",
+				zap.Error(err))
+			// 降级为独立模式
+			a.config.Sender.Mode = "direct"
+			return err
+		}
+
+		logger.Info("Successfully registered to core",
+			zap.String("sentinel_id", resp.SentinelID))
+		creds = credsMgr.GetCredentials()
+	} else {
+		logger.Info("Using existing credentials",
+			zap.String("sentinel_id", creds.SentinelID),
+			zap.Time("registered_at", creds.RegisteredAt))
+
+		// 验证凭证有效性
+		if a.config.Core.URL != "" && !a.validateCredentials(creds) {
+			logger.Warn("Credentials validation failed, attempting to re-register...")
+			// 删除旧凭证并重新注册
+			credsMgr.Delete()
+
+			// 递归调用重新注册
+			return a.handleRegistration()
+		}
+	}
+
+	// 4. 使用凭证更新配置
+	if creds != nil && creds.IsValid() {
+		a.config.Sentinel.ID = creds.SentinelID
+		a.config.Core.APIToken = creds.APIToken
+		if creds.CoreURL != "" {
+			a.config.Core.URL = creds.CoreURL
+		}
+	}
+
+	return nil
+}
+
+// validateCredentials 验证凭证有效性
+func (a *Agent) validateCredentials(creds *credentials.Credentials) bool {
+	logger.Debug("Validating credentials", zap.String("sentinel_id", creds.SentinelID))
+
+	// 发送一次心跳测试
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequest("POST",
+		creds.CoreURL+"/api/v1/sentinels/heartbeat",
+		bytes.NewReader([]byte("{}")))
+	if err != nil {
+		logger.Debug("Failed to create validation request", zap.Error(err))
+		return false
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Sentinel-ID", creds.SentinelID)
+	req.Header.Set("X-API-Token", creds.APIToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		logger.Debug("Credentials validation failed", zap.Error(err))
+		return false
+	}
+	defer resp.Body.Close()
+
+	isValid := resp.StatusCode == http.StatusOK
+	logger.Debug("Credentials validation result",
+		zap.Bool("valid", isValid),
+		zap.Int("status_code", resp.StatusCode))
+
+	return isValid
 }

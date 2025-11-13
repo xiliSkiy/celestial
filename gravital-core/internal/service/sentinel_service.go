@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -26,14 +27,16 @@ type SentinelService interface {
 
 // RegisterSentinelRequest Sentinel 注册请求
 type RegisterSentinelRequest struct {
-	Name      string                 `json:"name" binding:"required"`
-	Hostname  string                 `json:"hostname" binding:"required"`
-	IPAddress string                 `json:"ip_address"`
-	Version   string                 `json:"version" binding:"required"`
-	OS        string                 `json:"os" binding:"required"`
-	Arch      string                 `json:"arch" binding:"required"`
-	Region    string                 `json:"region"`
-	Labels    map[string]interface{} `json:"labels"`
+	Name            string                 `json:"name" binding:"required"`
+	Hostname        string                 `json:"hostname" binding:"required"`
+	IPAddress       string                 `json:"ip_address"`
+	MACAddress      string                 `json:"mac_address"` // MAC地址(用于唯一性标识)
+	Version         string                 `json:"version" binding:"required"`
+	OS              string                 `json:"os" binding:"required"`
+	Arch            string                 `json:"arch" binding:"required"`
+	Region          string                 `json:"region"`
+	Labels          map[string]interface{} `json:"labels"`
+	RegistrationKey string                 `json:"registration_key"` // 注册密钥(可选)
 }
 
 // RegisterSentinelResponse Sentinel 注册响应
@@ -41,6 +44,7 @@ type RegisterSentinelResponse struct {
 	SentinelID string                 `json:"sentinel_id"`
 	APIToken   string                 `json:"api_token"`
 	Config     map[string]interface{} `json:"config"`
+	Message    string                 `json:"message,omitempty"` // 附加消息
 }
 
 // HeartbeatRequest 心跳请求
@@ -74,25 +78,33 @@ func NewSentinelService(sentinelRepo repository.SentinelRepository) SentinelServ
 }
 
 func (s *sentinelService) Register(ctx context.Context, req *RegisterSentinelRequest) (*RegisterSentinelResponse, error) {
-	// 生成 Sentinel ID
-	sentinelID := fmt.Sprintf("sentinel-%s-%d", req.Hostname, time.Now().Unix())
+	// TODO: 这里可以添加 Registration Key 验证逻辑
+	// if req.RegistrationKey != expectedKey {
+	//     return nil, fmt.Errorf("invalid registration key")
+	// }
 
-	// 生成 API Token
-	apiToken, err := generateAPIToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate api token: %w", err)
-	}
+	// 1. 检查是否已存在(基于 Hostname 或 MAC 地址)
+	var existing *model.Sentinel
+	var err error
 
-	// 检查是否已存在
-	existing, err := s.sentinelRepo.GetBySentinelID(ctx, sentinelID)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, fmt.Errorf("failed to check existing sentinel: %w", err)
+	if req.MACAddress != "" {
+		// 优先使用 MAC 地址查找(更可靠)
+		existing, err = s.sentinelRepo.GetByHostname(ctx, req.Hostname)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("failed to check existing sentinel: %w", err)
+		}
+	} else {
+		// 仅使用 Hostname 查找
+		existing, err = s.sentinelRepo.GetByHostname(ctx, req.Hostname)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("failed to check existing sentinel: %w", err)
+		}
 	}
 
 	now := time.Now()
 
+	// 2. 如果已存在,更新信息
 	if existing != nil {
-		// 更新已存在的 Sentinel
 		existing.Name = req.Name
 		existing.IPAddress = req.IPAddress
 		existing.Version = req.Version
@@ -112,13 +124,21 @@ func (s *sentinelService) Register(ctx context.Context, req *RegisterSentinelReq
 			SentinelID: existing.SentinelID,
 			APIToken:   existing.APIToken,
 			Config: map[string]interface{}{
-				"heartbeat_interval": 30,
+				"heartbeat_interval":  30,
 				"task_fetch_interval": 60,
 			},
+			Message: "Sentinel re-registered successfully",
 		}, nil
 	}
 
-	// 创建新的 Sentinel
+	// 3. 生成新的 Sentinel ID 和 API Token
+	sentinelID := generateSentinelID(req.Hostname, req.MACAddress)
+	apiToken, err := generateAPIToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate api token: %w", err)
+	}
+
+	// 4. 创建新的 Sentinel
 	sentinel := &model.Sentinel{
 		SentinelID:    sentinelID,
 		Name:          req.Name,
@@ -144,9 +164,10 @@ func (s *sentinelService) Register(ctx context.Context, req *RegisterSentinelReq
 		SentinelID: sentinelID,
 		APIToken:   apiToken,
 		Config: map[string]interface{}{
-			"heartbeat_interval": 30,
+			"heartbeat_interval":  30,
 			"task_fetch_interval": 60,
 		},
+		Message: "Sentinel registered successfully",
 	}, nil
 }
 
@@ -240,3 +261,13 @@ func generateAPIToken() (string, error) {
 	return "sentinel_" + hex.EncodeToString(bytes), nil
 }
 
+// generateSentinelID 生成 Sentinel ID
+func generateSentinelID(hostname, macAddress string) string {
+	timestamp := time.Now().Unix()
+	if macAddress != "" {
+		// 使用 MAC 地址的哈希值
+		macHash := fmt.Sprintf("%x", md5.Sum([]byte(macAddress)))[:8]
+		return fmt.Sprintf("sentinel-%s-%s-%d", hostname, macHash, timestamp)
+	}
+	return fmt.Sprintf("sentinel-%s-%d", hostname, timestamp)
+}

@@ -1,0 +1,57 @@
+# 采集端配置文件 - 注册测试
+# 用于测试自动注册功能
+
+sentinel:
+  name: "test-sentinel-auto-register"
+  region: "beijing"
+  labels:
+    environment: "test"
+    datacenter: "dc1"
+
+# 中心端配置
+core:
+  url: "http://localhost:8080"
+  # registration_key: "your-registration-key-here"  # 如果中心端启用了注册密钥验证,取消注释
+  insecure_skip_verify: false
+
+# 凭证文件路径(可选,默认: ~/.sentinel/credentials.yaml)
+# credentials_path: "/tmp/sentinel-credentials.yaml"
+
+# 心跳配置
+heartbeat:
+  interval: 30s
+  timeout: 10s
+  retry_times: 3
+
+# 采集器配置
+collector:
+  worker_pool_size: 10
+  task_fetch_interval: 60s
+  max_execution_time: 300s
+
+# 缓冲配置
+buffer:
+  type: "memory"
+  size: 10000
+  flush_interval: 10s
+
+# 发送器配置
+sender:
+  mode: "core"  # core: 发送到中心端
+  batch_size: 100
+  flush_interval: 10s
+  timeout: 30s
+  retry_times: 3
+  retry_interval: 5s
+
+# 插件配置
+plugins:
+  directory: "./plugins"
+  auto_reload: false
+
+# 日志配置
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+
