@@ -24,12 +24,32 @@ func NewTaskHandler(taskService service.TaskService) *TaskHandler {
 // List 获取任务列表
 func (h *TaskHandler) List(c *gin.Context) {
 	var req service.ListTaskRequest
+
+	// 使用 ShouldBindQuery，允许参数为空（使用默认值）
 	if err := c.ShouldBindQuery(&req); err != nil {
+		// 如果是 GET 请求但参数绑定失败，可能是请求方法错误
+		// 检查是否是 POST 请求被错误地发送到了这个端点
+		if c.Request.Method != "GET" {
+			c.JSON(http.StatusMethodNotAllowed, gin.H{
+				"code":    40005,
+				"message": "请求方法错误: 获取任务列表应使用 GET 方法",
+			})
+			return
+		}
+
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    40001,
 			"message": "参数错误: " + err.Error(),
 		})
 		return
+	}
+
+	// 设置默认值
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PageSize <= 0 {
+		req.PageSize = 20
 	}
 
 	tasks, total, err := h.taskService.List(c.Request.Context(), &req)
@@ -80,8 +100,26 @@ func (h *TaskHandler) Get(c *gin.Context) {
 
 // Create 创建任务
 func (h *TaskHandler) Create(c *gin.Context) {
+	// 检查请求方法
+	if c.Request.Method != "POST" {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{
+			"code":    40005,
+			"message": "请求方法错误: 创建任务应使用 POST 方法",
+		})
+		return
+	}
+
 	var req service.CreateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		// 检查是否是 GET 请求被错误地发送到了这个端点
+		if c.Request.Method == "GET" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    40001,
+				"message": "请求方法错误: 获取任务列表应使用 GET /api/v1/tasks，而不是 POST",
+			})
+			return
+		}
+
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    40001,
 			"message": "参数错误: " + err.Error(),
@@ -309,4 +347,3 @@ func (h *TaskHandler) GetExecutions(c *gin.Context) {
 		},
 	})
 }
-

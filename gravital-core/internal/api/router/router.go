@@ -188,12 +188,13 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 			}
 		}
 
-		// Sentinel API（使用 API Token 认证）
+		// Sentinel API
 		sentinelAPI := v1.Group("/sentinels")
-		sentinelAPI.Use(middleware.SentinelAuth())
 		{
+			// 注册接口不需要认证（因为注册的目的就是获取凭证）
 			sentinelAPI.POST("/register", sentinelHandler.Register)
-			sentinelAPI.POST("/heartbeat", sentinelHandler.Heartbeat)
+			// 心跳接口需要认证
+			sentinelAPI.POST("/heartbeat", middleware.SentinelAuth(), sentinelHandler.Heartbeat)
 		}
 
 		// 任务 API（Sentinel 调用）- 使用不同的路径避免冲突
@@ -227,4 +228,3 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 
 	return r, forwarderService
 }
-

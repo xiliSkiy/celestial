@@ -87,7 +87,15 @@ func (s *Sender) Stop() {
 
 // flushLoop 刷新循环
 func (s *Sender) flushLoop() {
-	ticker := time.NewTicker(s.config.FlushInterval)
+	// 确保 FlushInterval 有效（至少 1 秒）
+	flushInterval := s.config.FlushInterval
+	if flushInterval <= 0 {
+		logger.Warn("FlushInterval is zero or negative, using default 10s",
+			zap.Duration("configured", flushInterval))
+		flushInterval = 10 * time.Second
+	}
+
+	ticker := time.NewTicker(flushInterval)
 	defer ticker.Stop()
 
 	for {

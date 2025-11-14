@@ -35,6 +35,8 @@ func Init(level string, format string, output string, filePath string) error {
 	}
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	// 启用调用者信息（包含文件名和行号）
+	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
 
 	// 创建编码器
 	var encoder zapcore.Encoder

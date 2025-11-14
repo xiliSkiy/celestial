@@ -19,6 +19,7 @@ type SentinelRepository interface {
 	List(ctx context.Context, filter *SentinelFilter) ([]*model.Sentinel, int64, error)
 	UpdateHeartbeat(ctx context.Context, sentinelID string, heartbeat *model.SentinelHeartbeat) error
 	UpdateStatus(ctx context.Context, sentinelID string, status string) error
+	GetByHostname(ctx context.Context, hostname string) (*model.Sentinel, error)
 }
 
 // SentinelFilter Sentinel 过滤条件
@@ -54,6 +55,15 @@ func (r *sentinelRepository) GetByID(ctx context.Context, id uint) (*model.Senti
 func (r *sentinelRepository) GetBySentinelID(ctx context.Context, sentinelID string) (*model.Sentinel, error) {
 	var sentinel model.Sentinel
 	err := r.db.WithContext(ctx).Where("sentinel_id = ?", sentinelID).First(&sentinel).Error
+	if err != nil {
+		return nil, err
+	}
+	return &sentinel, nil
+}
+
+func (r *sentinelRepository) GetByHostname(ctx context.Context, hostname string) (*model.Sentinel, error) {
+	var sentinel model.Sentinel
+	err := r.db.WithContext(ctx).Where("hostname = ?", hostname).First(&sentinel).Error
 	if err != nil {
 		return nil, err
 	}
@@ -116,4 +126,3 @@ func (r *sentinelRepository) UpdateStatus(ctx context.Context, sentinelID string
 		Where("sentinel_id = ?", sentinelID).
 		Update("status", status).Error
 }
-

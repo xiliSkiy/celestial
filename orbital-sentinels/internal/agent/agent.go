@@ -149,10 +149,25 @@ func (a *Agent) initialize() error {
 	}
 
 	// 3. 创建发送器
+	// 设置默认值
+	flushInterval := a.config.Sender.FlushInterval
+	if flushInterval <= 0 {
+		flushInterval = 10 * time.Second
+		logger.Info("Using default flush_interval",
+			zap.Duration("interval", flushInterval))
+	}
+
+	batchSize := a.config.Sender.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100
+		logger.Info("Using default batch_size",
+			zap.Int("size", batchSize))
+	}
+
 	senderConfig := &sender.Config{
 		Mode:          sender.SendMode(a.config.Sender.Mode),
-		BatchSize:     a.config.Sender.BatchSize,
-		FlushInterval: a.config.Sender.FlushInterval,
+		BatchSize:     batchSize,
+		FlushInterval: flushInterval,
 		Timeout:       a.config.Sender.Timeout,
 		RetryTimes:    a.config.Sender.RetryTimes,
 		RetryInterval: a.config.Sender.RetryInterval,
