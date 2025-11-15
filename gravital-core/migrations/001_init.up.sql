@@ -283,7 +283,7 @@ INSERT INTO roles (name, permissions, description) VALUES
 -- 插入默认管理员用户 (密码: admin123)
 -- bcrypt hash of "admin123"
 INSERT INTO users (username, email, password_hash, role_id, enabled) VALUES
-('admin', 'admin@example.com', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 1, true);
+('admin', 'admin@example.com', '$2a$10$C/d6qPp3yGedbXT9kxnTieZYlwboRXIy.FcFjrie/yghKedWwR8yG', 1, true);
 
 -- 插入默认设备分组
 INSERT INTO device_groups (name, parent_id, description) VALUES
