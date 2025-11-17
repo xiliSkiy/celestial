@@ -22,7 +22,7 @@ type TaskService interface {
 	List(ctx context.Context, req *ListTaskRequest) ([]*model.CollectionTask, int64, error)
 	GetSentinelTasks(ctx context.Context, sentinelID string) ([]*model.CollectionTask, error)
 	ReportExecution(ctx context.Context, taskID string, req *ReportExecutionRequest) error
-	Trigger(ctx context.Context, taskID string) error
+	Trigger(ctx context.Context, id uint) error
 	Toggle(ctx context.Context, id uint, enabled bool) error
 	GetExecutions(ctx context.Context, id uint, page, pageSize int) ([]*model.TaskExecution, int64, error)
 }
@@ -237,10 +237,31 @@ func (s *taskService) ReportExecution(ctx context.Context, taskID string, req *R
 	return nil
 }
 
-func (s *taskService) Trigger(ctx context.Context, taskID string) error {
-	// TODO: 实现手动触发任务的逻辑
-	// 这里需要通过某种机制通知 Sentinel 立即执行任务
-	return fmt.Errorf("trigger not implemented")
+func (s *taskService) Trigger(ctx context.Context, id uint) error {
+	// 获取任务
+	task, err := s.taskRepo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("task not found")
+		}
+		return fmt.Errorf("failed to get task: %w", err)
+	}
+
+	// 检查任务是否启用
+	if !task.Enabled {
+		return fmt.Errorf("task is disabled")
+	}
+
+	// 将下次执行时间设置为当前时间，这样 Sentinel 下次拉取任务时就会立即执行
+	now := time.Now()
+	task.NextExecutionAt = &now
+
+	// 更新任务
+	if err := s.taskRepo.Update(ctx, task); err != nil {
+		return fmt.Errorf("failed to update task: %w", err)
+	}
+
+	return nil
 }
 
 func (s *taskService) Toggle(ctx context.Context, id uint, enabled bool) error {
@@ -272,4 +293,3 @@ func (s *taskService) GetExecutions(ctx context.Context, id uint, page, pageSize
 
 	return s.taskRepo.GetExecutions(ctx, task.TaskID, page, pageSize)
 }
-

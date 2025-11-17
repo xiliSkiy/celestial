@@ -42,7 +42,7 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(startCmd, versionCmd, triggerCmd)
+	rootCmd.AddCommand(startCmd, versionCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

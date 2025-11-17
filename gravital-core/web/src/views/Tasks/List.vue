@@ -36,17 +36,33 @@
     <el-card class="table-card">
       <el-table :data="tasks" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="任务名称" width="200" />
-        <el-table-column prop="device_id" label="目标设备" width="180" />
-        <el-table-column prop="sentinel_id" label="Sentinel" width="180" />
-        <el-table-column prop="plugin_type" label="插件类型" width="120" />
-        <el-table-column prop="interval" label="采集间隔" width="120" />
+        <el-table-column prop="name" label="任务名称" width="200" show-overflow-tooltip />
+        <el-table-column label="目标设备" width="180">
+          <template #default="{ row }">
+            {{ row.device?.name || row.device_id || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="sentinel_id" label="Sentinel" width="180" show-overflow-tooltip />
+        <el-table-column prop="plugin_type" label="插件类型" width="120">
+          <template #default="{ row }">
+            {{ row.plugin_type || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="interval" label="采集间隔" width="120">
+          <template #default="{ row }">
+            {{ row.interval || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <StatusBadge :status="row.enabled ? 'online' : 'offline'" />
           </template>
         </el-table-column>
-        <el-table-column prop="last_execution" label="最后执行" width="180" />
+        <el-table-column prop="last_execution" label="最后执行" width="180">
+          <template #default="{ row }">
+            {{ row.last_execution || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <el-button 
@@ -227,9 +243,47 @@ const deviceConfigStr = ref('{}')
 const rules: FormRules = {
   name: [{ required: true, message: '请输入任务名称', trigger: 'blur' }],
   device_id: [{ required: true, message: '请选择目标设备', trigger: 'change' }],
+  sentinel_id: [{ required: true, message: '请选择 Sentinel', trigger: 'change' }],
   plugin_type: [{ required: true, message: '请选择插件类型', trigger: 'change' }],
   interval: [{ required: true, message: '请输入采集间隔', trigger: 'blur' }],
   timeout: [{ required: true, message: '请输入超时时间', trigger: 'blur' }]
+}
+
+// 将秒数转换为时间字符串（如 60 -> "60s", 120 -> "2m"）
+const formatSecondsToDuration = (seconds: number | string): string => {
+  if (typeof seconds === 'string') {
+    // 如果已经是字符串，直接返回
+    return seconds
+  }
+  if (!seconds || seconds <= 0) return '60s'
+  
+  if (seconds < 60) {
+    return `${seconds}s`
+  } else if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60)
+    return `${minutes}m`
+  } else {
+    const hours = Math.floor(seconds / 3600)
+    return `${hours}h`
+  }
+}
+
+// 格式化日期时间
+const formatDateTime = (date: string | null | undefined): string => {
+  if (!date) return '-'
+  try {
+    const d = new Date(date)
+    return d.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  } catch (error) {
+    return '-'
+  }
 }
 
 // 获取任务列表
@@ -237,7 +291,22 @@ const fetchTasks = async () => {
   loading.value = true
   try {
     const res: any = await taskApi.getTasks(query)
-    tasks.value = res.items || []
+    // 转换数据格式以匹配前端表格列
+    tasks.value = (res.items || []).map((task: any) => ({
+      ...task,
+      // 任务名称：使用设备名称 + 插件类型，或使用 task_id
+      name: task.device?.name 
+        ? `${task.device.name} - ${task.plugin_name || '未知'}`
+        : `任务 ${task.task_id}`,
+      // 插件类型：后端返回 plugin_name，前端期望 plugin_type
+      plugin_type: task.plugin_name || task.plugin_type || '-',
+      // 采集间隔：后端返回 interval_seconds (数字)，前端期望 interval (字符串)
+      interval: formatSecondsToDuration(task.interval_seconds || task.interval || 60),
+      // 最后执行：后端返回 last_executed_at，前端期望 last_execution (格式化)
+      last_execution: formatDateTime(task.last_executed_at),
+      // 目标设备：显示设备名称
+      device_name: task.device?.name || task.device_id || '-'
+    }))
     total.value = res.total || 0
   } catch (error) {
     ElMessage.error('获取任务列表失败')
@@ -278,17 +347,17 @@ const handleEdit = (row: any) => {
   dialogTitle.value = '编辑任务'
   currentTask.value = row
   Object.assign(form, {
-    name: row.name,
+    name: row.name || '',
     device_id: row.device_id,
     sentinel_id: row.sentinel_id || '',
-    plugin_type: row.plugin_type,
-    device_config: row.device_config || {},
-    interval: row.interval,
-    timeout: row.timeout,
+    plugin_type: row.plugin_name || row.plugin_type,  // 后端返回 plugin_name
+    device_config: row.config || row.device_config || {},  // 后端返回 config
+    interval: formatSecondsToDuration(row.interval_seconds || row.interval || 60),  // 后端返回 interval_seconds (数字)
+    timeout: formatSecondsToDuration(row.timeout_seconds || row.timeout || 30),  // 后端返回 timeout_seconds (数字)
     enabled: row.enabled,
     labels: row.labels || {}
   })
-  deviceConfigStr.value = JSON.stringify(row.device_config || {}, null, 2)
+  deviceConfigStr.value = JSON.stringify(row.config || row.device_config || {}, null, 2)
   dialogVisible.value = true
 }
 
@@ -333,6 +402,21 @@ const handleTrigger = async (row: any) => {
   }
 }
 
+// 解析时间字符串为秒数（如 "60s" -> 60, "1m" -> 60）
+const parseDurationToSeconds = (duration: string): number => {
+  if (!duration) return 60 // 默认值
+  const match = duration.match(/^(\d+)([smh])?$/)
+  if (!match) return 60
+  const value = parseInt(match[1])
+  const unit = match[2] || 's'
+  switch (unit) {
+    case 's': return value
+    case 'm': return value * 60
+    case 'h': return value * 3600
+    default: return value
+  }
+}
+
 // 提交表单
 const handleSubmit = async () => {
   if (!formRef.value) return
@@ -350,16 +434,37 @@ const handleSubmit = async () => {
       submitting.value = true
       try {
         if (currentTask.value) {
-          await taskApi.updateTask(currentTask.value.id, form)
+          // 更新任务：只发送 UpdateTaskRequest 需要的字段
+          const updateData = {
+            config: form.device_config,  // device_config -> config
+            interval_seconds: parseDurationToSeconds(form.interval || '60s'),  // interval -> interval_seconds (数字)
+            enabled: form.enabled
+          }
+          await taskApi.updateTask(currentTask.value.id, updateData as any)
           ElMessage.success('更新成功')
         } else {
-          await taskApi.createTask(form)
+          // 创建任务：发送 CreateTaskRequest 需要的字段
+          if (!form.sentinel_id) {
+            ElMessage.error('请选择 Sentinel')
+            submitting.value = false
+            return
+          }
+          const createData = {
+            device_id: form.device_id,
+            sentinel_id: form.sentinel_id,
+            plugin_name: form.plugin_type,  // plugin_type -> plugin_name
+            config: form.device_config,  // device_config -> config
+            interval_seconds: parseDurationToSeconds(form.interval || '60s'),  // interval -> interval_seconds (数字)
+            timeout_seconds: parseDurationToSeconds(form.timeout || '30s'),  // timeout -> timeout_seconds (数字)
+            enabled: form.enabled
+          }
+          await taskApi.createTask(createData as any)
           ElMessage.success('创建成功')
         }
         dialogVisible.value = false
         fetchTasks()
       } catch (error: any) {
-        ElMessage.error(error.message || '操作失败')
+        ElMessage.error(error.response?.data?.message || error.message || '操作失败')
       } finally {
         submitting.value = false
       }

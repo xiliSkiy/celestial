@@ -271,7 +271,7 @@ const handleEdit = (forwarder: any) => {
     endpoint: forwarder.endpoint,
     enabled: forwarder.enabled,
     batch_size: forwarder.batch_size || 1000,
-    flush_interval: forwarder.flush_interval || '10s',
+    flush_interval: formatSecondsToDuration(forwarder.flush_interval || 10),
     auth_config: forwarder.auth_config || {},
     tls_config: forwarder.tls_config || {}
   })
@@ -288,7 +288,7 @@ const handleDelete = (forwarder: any) => {
     type: 'warning'
   }).then(async () => {
     try {
-      await forwarderApi.deleteForwarder(forwarder.id)
+      await forwarderApi.deleteForwarder(forwarder.name)
       ElMessage.success('删除成功')
       fetchForwarders()
     } catch (error) {
@@ -300,7 +300,18 @@ const handleDelete = (forwarder: any) => {
 // 启用/禁用转发器
 const handleToggle = async (forwarder: any) => {
   try {
-    await forwarderApi.toggleForwarder(forwarder.id, !forwarder.enabled)
+    // 获取完整配置，然后更新 enabled 字段
+    const res: any = await forwarderApi.getForwarder(forwarder.name)
+    const fullConfig = res.data || res
+    const updateData = {
+      ...fullConfig,
+      enabled: !forwarder.enabled,
+      // 确保 flush_interval 是数字
+      flush_interval: typeof fullConfig.flush_interval === 'string' 
+        ? parseDurationToSeconds(fullConfig.flush_interval) 
+        : fullConfig.flush_interval
+    }
+    await forwarderApi.updateForwarder(forwarder.name, updateData)
     ElMessage.success(forwarder.enabled ? '已禁用' : '已启用')
     fetchForwarders()
   } catch (error) {
@@ -321,6 +332,40 @@ const handleTypeChange = (type: string) => {
   }
 }
 
+// 解析时间字符串为秒数（如 "10s" -> 10, "1m" -> 60）
+const parseDurationToSeconds = (duration: string): number => {
+  if (!duration) return 10 // 默认值
+  const match = duration.match(/^(\d+)([smh])?$/)
+  if (!match) return 10
+  const value = parseInt(match[1])
+  const unit = match[2] || 's'
+  switch (unit) {
+    case 's': return value
+    case 'm': return value * 60
+    case 'h': return value * 3600
+    default: return value
+  }
+}
+
+// 将秒数转换为时间字符串（如 10 -> "10s", 60 -> "1m"）
+const formatSecondsToDuration = (seconds: number | string): string => {
+  if (typeof seconds === 'string') {
+    // 如果已经是字符串，直接返回
+    return seconds
+  }
+  if (!seconds || seconds <= 0) return '10s'
+  
+  if (seconds < 60) {
+    return `${seconds}s`
+  } else if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60)
+    return `${minutes}m`
+  } else {
+    const hours = Math.floor(seconds / 3600)
+    return `${hours}h`
+  }
+}
+
 // 测试连接
 const handleTest = async () => {
   if (!formRef.value) return
@@ -338,10 +383,27 @@ const handleTest = async () => {
       
       testing.value = true
       try {
-        await forwarderApi.testConnection(form)
-        ElMessage.success('连接测试成功')
+        // 准备测试数据（转换格式以匹配后端）
+        const testData = {
+          name: form.name || 'test',
+          type: form.type,
+          endpoint: form.endpoint,
+          enabled: form.enabled,
+          batch_size: form.batch_size || 1000,
+          flush_interval: parseDurationToSeconds(form.flush_interval || '10s'),
+          retry_times: 3,
+          timeout_seconds: 30,
+          auth_config: form.auth_config || {}
+        }
+        
+        const result = await forwarderApi.testConnection(testData as any)
+        if (result.success) {
+          ElMessage.success(result.message || '连接测试成功')
+        } else {
+          ElMessage.error(result.message || '连接测试失败')
+        }
       } catch (error: any) {
-        ElMessage.error(error.message || '连接测试失败')
+        ElMessage.error(error.response?.data?.message || error.message || '连接测试失败')
       } finally {
         testing.value = false
       }
@@ -366,17 +428,30 @@ const handleSubmit = async () => {
       
       submitting.value = true
       try {
+        // 准备提交数据（转换格式以匹配后端）
+        const submitData = {
+          name: form.name,
+          type: form.type,
+          endpoint: form.endpoint,
+          enabled: form.enabled,
+          batch_size: form.batch_size || 1000,
+          flush_interval: parseDurationToSeconds(form.flush_interval || '10s'),
+          retry_times: 3,
+          timeout_seconds: 30,
+          auth_config: form.auth_config || {}
+        }
+        
         if (currentForwarder.value) {
-          await forwarderApi.updateForwarder(currentForwarder.value.id, form)
+          await forwarderApi.updateForwarder(currentForwarder.value.name, submitData as any)
           ElMessage.success('更新成功')
         } else {
-          await forwarderApi.createForwarder(form)
+          await forwarderApi.createForwarder(submitData as any)
           ElMessage.success('创建成功')
         }
         dialogVisible.value = false
         fetchForwarders()
       } catch (error: any) {
-        ElMessage.error(error.message || '操作失败')
+        ElMessage.error(error.response?.data?.message || error.message || '操作失败')
       } finally {
         submitting.value = false
       }

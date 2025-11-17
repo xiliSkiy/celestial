@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/celestial/orbital-sentinels/internal/buffer"
+	"github.com/celestial/orbital-sentinels/internal/client"
 	"github.com/celestial/orbital-sentinels/internal/credentials"
 	"github.com/celestial/orbital-sentinels/internal/heartbeat"
 	"github.com/celestial/orbital-sentinels/internal/pkg/config"
@@ -269,6 +270,22 @@ func (a *Agent) initialize() error {
 			logger.Error("Failed to push metrics to buffer", zap.Error(err))
 		}
 	})
+
+	// 如果配置了中心端 URL 和 Token，创建任务客户端用于从中心端获取任务
+	if a.config.Core.URL != "" && a.config.Core.APIToken != "" {
+		taskClient := client.NewTaskClient(
+			a.config.Core.URL,
+			a.config.Core.APIToken,
+			a.config.Sentinel.ID,
+			a.config.Sender.Timeout,
+		)
+		a.scheduler.SetTaskClient(taskClient)
+		logger.Info("Task client configured for fetching tasks from core",
+			zap.String("core_url", a.config.Core.URL),
+			zap.Duration("fetch_interval", a.config.Collector.TaskFetchInterval))
+	} else {
+		logger.Info("Task client not configured (core URL or token missing), will only use local tasks")
+	}
 
 	// 5. 创建心跳管理器
 	sentinelID := a.config.Sentinel.ID

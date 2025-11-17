@@ -29,10 +29,20 @@ type ForwarderService interface {
 	GetForwarderStats(ctx context.Context, name string) (map[string]interface{}, error)
 	GetAllStats(ctx context.Context) (map[string]interface{}, error)
 
+	// 测试连接
+	TestConnection(ctx context.Context, config *model.ForwarderConfig) (*ForwarderTestConnectionResult, error)
+
 	// 生命周期
 	Start() error
 	Stop() error
 	ReloadConfig() error
+}
+
+// ForwarderTestConnectionResult 转发器测试连接结果
+type ForwarderTestConnectionResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Latency int64  `json:"latency_ms,omitempty"`
 }
 
 type forwarderService struct {
@@ -351,3 +361,64 @@ func (s *forwarderService) getBufferStatus() map[string]interface{} {
 	}
 }
 
+// TestConnection 测试转发器连接
+func (s *forwarderService) TestConnection(ctx context.Context, config *model.ForwarderConfig) (*ForwarderTestConnectionResult, error) {
+	startTime := time.Now()
+
+	// 转换为转发器配置
+	fwdConfig := s.modelToForwarderConfig(config)
+
+	// 创建临时转发器实例进行测试
+	var testForwarder forwarder.Forwarder
+	var err error
+
+	switch fwdConfig.Type {
+	case forwarder.ForwarderTypePrometheus:
+		testForwarder, err = forwarder.NewPrometheusForwarder(fwdConfig, s.logger)
+	case forwarder.ForwarderTypeVictoriaMetrics:
+		testForwarder, err = forwarder.NewVictoriaMetricsForwarder(fwdConfig, s.logger)
+	case forwarder.ForwarderTypeClickHouse:
+		testForwarder, err = forwarder.NewClickHouseForwarder(fwdConfig, s.logger)
+	default:
+		return &ForwarderTestConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("不支持的转发器类型: %s", config.Type),
+		}, nil
+	}
+
+	if err != nil {
+		return &ForwarderTestConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("创建转发器失败: %v", err),
+		}, nil
+	}
+	defer testForwarder.Close()
+
+	// 创建测试指标
+	testMetrics := []*forwarder.Metric{
+		{
+			Name:      "test_connection",
+			Value:     1.0,
+			Type:      "gauge",
+			Labels:    map[string]string{"test": "true"},
+			Timestamp: time.Now().Unix(),
+		},
+	}
+
+	// 尝试写入测试数据
+	if err := testForwarder.Write(testMetrics); err != nil {
+		latency := time.Since(startTime).Milliseconds()
+		return &ForwarderTestConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("连接测试失败: %v", err),
+			Latency: latency,
+		}, nil
+	}
+
+	latency := time.Since(startTime).Milliseconds()
+	return &ForwarderTestConnectionResult{
+		Success: true,
+		Message: "连接测试成功",
+		Latency: latency,
+	}, nil
+}

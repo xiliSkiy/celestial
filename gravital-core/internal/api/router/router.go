@@ -188,14 +188,12 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 			}
 		}
 
-		// Sentinel API
-		sentinelAPI := v1.Group("/sentinels")
-		{
-			// 注册接口不需要认证（因为注册的目的就是获取凭证）
-			sentinelAPI.POST("/register", sentinelHandler.Register)
-			// 心跳接口需要认证
-			sentinelAPI.POST("/heartbeat", middleware.SentinelAuth(), sentinelHandler.Heartbeat)
-		}
+		// Sentinel API（注意：这些路由在 authenticated 组之外，不需要 JWT 认证）
+		// 注册接口（不需要任何认证，因为注册的目的就是获取凭证）
+		v1.POST("/sentinels/register", sentinelHandler.Register)
+
+		// Sentinel 心跳接口（需要 Sentinel 认证）
+		v1.POST("/sentinels/heartbeat", middleware.SentinelAuth(), sentinelHandler.Heartbeat)
 
 		// 任务 API（Sentinel 调用）- 使用不同的路径避免冲突
 		sentinelTasks := v1.Group("/sentinel-tasks")
@@ -223,6 +221,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 			forwarders.PUT("/:name", middleware.RequirePermission("admin.config"), forwarderHandler.UpdateForwarder)
 			forwarders.DELETE("/:name", middleware.RequirePermission("admin.config"), forwarderHandler.DeleteForwarder)
 			forwarders.POST("/reload", middleware.RequirePermission("admin.config"), forwarderHandler.ReloadConfig)
+			forwarders.POST("/test", middleware.RequirePermission("admin.config"), forwarderHandler.TestConnection)
 		}
 	}
 

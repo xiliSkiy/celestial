@@ -254,3 +254,27 @@ func (h *ForwarderHandler) ReloadConfig(c *gin.Context) {
 	})
 }
 
+// TestConnection 测试转发器连接
+// @Summary 测试转发器连接
+// @Tags forwarder
+// @Accept json
+// @Produce json
+// @Param config body model.ForwarderConfig true "转发器配置"
+// @Success 200 {object} Response{data=service.ForwarderTestConnectionResult}
+// @Router /api/v1/forwarders/test [post]
+func (h *ForwarderHandler) TestConnection(c *gin.Context) {
+	var req model.ForwarderConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ErrorResponse(c, http.StatusBadRequest, 40001, err.Error())
+		return
+	}
+
+	result, err := h.service.TestConnection(c.Request.Context(), &req)
+	if err != nil {
+		h.logger.Error("Failed to test connection", zap.Error(err))
+		ErrorResponse(c, http.StatusInternalServerError, 10001, err.Error())
+		return
+	}
+
+	SuccessResponse(c, result)
+}

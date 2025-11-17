@@ -131,7 +131,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessageBox } from 'element-plus'
@@ -141,7 +141,8 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const isCollapse = ref(false)
-const isDark = ref(true)
+// 默认使用日间模式（light mode）
+const isDark = ref(false)
 const unreadCount = ref(0)
 
 const activeMenu = computed(() => {
@@ -156,10 +157,32 @@ const toggleCollapse = () => {
   isCollapse.value = !isCollapse.value
 }
 
-const toggleTheme = () => {
-  isDark.value = !isDark.value
+// 初始化主题
+const initTheme = () => {
+  // 从 localStorage 读取保存的主题偏好
+  const savedTheme = localStorage.getItem('theme')
+  if (savedTheme) {
+    isDark.value = savedTheme === 'dark'
+  } else {
+    // 如果没有保存的主题，默认使用日间模式
+    isDark.value = false
+  }
+  // 应用主题
   document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light')
 }
+
+const toggleTheme = () => {
+  isDark.value = !isDark.value
+  const theme = isDark.value ? 'dark' : 'light'
+  document.documentElement.setAttribute('data-theme', theme)
+  // 保存主题偏好到 localStorage
+  localStorage.setItem('theme', theme)
+}
+
+// 组件挂载时初始化主题
+onMounted(() => {
+  initTheme()
+})
 
 const handleCommand = (command: string) => {
   if (command === 'logout') {

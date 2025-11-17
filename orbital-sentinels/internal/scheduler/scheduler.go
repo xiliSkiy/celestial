@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/celestial/orbital-sentinels/internal/client"
 	"github.com/celestial/orbital-sentinels/internal/pkg/logger"
 	"github.com/celestial/orbital-sentinels/internal/plugin"
 	"go.uber.org/zap"
@@ -38,6 +39,7 @@ type Scheduler struct {
 	tasks         map[string]*ScheduledTask
 	workerPool    *WorkerPool
 	fetchInterval time.Duration
+	taskClient    *client.TaskClient
 	onMetrics     func([]*plugin.Metric, *plugin.CollectionTask)
 	onReport      func(*ScheduledTask, time.Duration, int)
 	mu            sync.RWMutex
@@ -59,6 +61,11 @@ func NewScheduler(
 	}
 }
 
+// SetTaskClient 设置任务客户端（用于从中心端获取任务）
+func (s *Scheduler) SetTaskClient(taskClient *client.TaskClient) {
+	s.taskClient = taskClient
+}
+
 // SetMetricsHandler 设置指标处理器
 func (s *Scheduler) SetMetricsHandler(handler func([]*plugin.Metric, *plugin.CollectionTask)) {
 	s.onMetrics = handler
@@ -72,6 +79,13 @@ func (s *Scheduler) SetReportHandler(handler func(*ScheduledTask, time.Duration,
 // Start 启动调度器
 func (s *Scheduler) Start(ctx context.Context) {
 	s.ctx, s.cancel = context.WithCancel(ctx)
+
+	// 启动任务获取循环（如果有任务客户端）
+	if s.taskClient != nil {
+		go s.fetchTasksLoop()
+		logger.Info("Task fetch loop started",
+			zap.Duration("interval", s.fetchInterval))
+	}
 
 	// 启动调度循环
 	go s.scheduleLoop()
@@ -121,7 +135,7 @@ func (s *Scheduler) RemoveTask(taskID string) {
 	logger.Info("Removed task", zap.String("task_id", taskID))
 }
 
-// UpdateTasks 更新任务列表
+// UpdateTasks 更新任务列表（使用统一间隔）
 func (s *Scheduler) UpdateTasks(tasks []*plugin.CollectionTask, interval time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -155,6 +169,60 @@ func (s *Scheduler) UpdateTasks(tasks []*plugin.CollectionTask, interval time.Du
 	}
 
 	logger.Info("Updated tasks", zap.Int("count", len(s.tasks)))
+}
+
+// UpdateTasksWithIntervals 更新任务列表（每个任务使用不同的间隔）
+func (s *Scheduler) UpdateTasksWithIntervals(tasksWithIntervals []client.TaskWithInterval) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 创建新任务映射
+	newTasks := make(map[string]bool)
+	for _, twi := range tasksWithIntervals {
+		task := twi.Task
+		interval := twi.Interval
+		newTasks[task.TaskID] = true
+
+		// 如果任务已存在，更新配置
+		if st, exists := s.tasks[task.TaskID]; exists {
+			st.Task = task
+			st.Interval = interval
+			logger.Debug("Updated existing task",
+				zap.String("task_id", task.TaskID),
+				zap.Duration("interval", interval))
+		} else {
+			// 新任务
+			// 如果后端返回了 NextExecutionAt，使用它；否则立即执行
+			nextRun := time.Now()
+			st := &ScheduledTask{
+				Task:       task,
+				NextRun:    nextRun,
+				Interval:   interval,
+				LastStatus: TaskStatusPending,
+			}
+			s.tasks[task.TaskID] = st
+			logger.Info("Added new task",
+				zap.String("task_id", task.TaskID),
+				zap.String("device_id", task.DeviceID),
+				zap.String("plugin", task.PluginName),
+				zap.Duration("interval", interval))
+		}
+	}
+
+	// 移除不再存在的任务
+	removedCount := 0
+	for taskID := range s.tasks {
+		if !newTasks[taskID] {
+			delete(s.tasks, taskID)
+			removedCount++
+			logger.Info("Removed task", zap.String("task_id", taskID))
+		}
+	}
+
+	logger.Info("Updated tasks from core",
+		zap.Int("total", len(tasksWithIntervals)),
+		zap.Int("active", len(s.tasks)),
+		zap.Int("removed", removedCount))
 }
 
 // scheduleLoop 调度循环
@@ -284,4 +352,48 @@ func (s *Scheduler) GetAllTasks() []*ScheduledTask {
 	}
 
 	return tasks
+}
+
+// fetchTasksLoop 任务获取循环
+func (s *Scheduler) fetchTasksLoop() {
+	// 立即获取一次任务
+	s.fetchTasks()
+
+	// 设置定时器
+	ticker := time.NewTicker(s.fetchInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.fetchTasks()
+		case <-s.ctx.Done():
+			return
+		}
+	}
+}
+
+// fetchTasks 从中心端获取任务
+func (s *Scheduler) fetchTasks() {
+	if s.taskClient == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	tasksWithIntervals, err := s.taskClient.GetTasks(ctx)
+	if err != nil {
+		logger.Warn("Failed to fetch tasks from core",
+			zap.Error(err))
+		return
+	}
+
+	if len(tasksWithIntervals) == 0 {
+		logger.Debug("No tasks fetched from core")
+		return
+	}
+
+	// 更新任务列表（每个任务使用自己的间隔）
+	s.UpdateTasksWithIntervals(tasksWithIntervals)
 }

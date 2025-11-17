@@ -261,9 +261,16 @@ func (h *TaskHandler) ReportExecution(c *gin.Context) {
 
 // Trigger 手动触发任务
 func (h *TaskHandler) Trigger(c *gin.Context) {
-	taskID := c.Param("id")
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "无效的任务 ID",
+		})
+		return
+	}
 
-	if err := h.taskService.Trigger(c.Request.Context(), taskID); err != nil {
+	if err := h.taskService.Trigger(c.Request.Context(), uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    10001,
 			"message": "触发失败: " + err.Error(),
@@ -273,7 +280,7 @@ func (h *TaskHandler) Trigger(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
-		"message": "success",
+		"message": "任务已触发，将在下次 Sentinel 拉取任务时立即执行",
 	})
 }
 
