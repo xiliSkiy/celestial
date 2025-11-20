@@ -315,7 +315,7 @@ func (s *Scheduler) runTask(st *ScheduledTask) {
 			s.onMetrics(metrics, st.Task)
 		}
 
-		logger.Debug("Task succeeded",
+		logger.Info("Task succeeded",
 			zap.String("task_id", st.Task.TaskID),
 			zap.String("device_id", st.Task.DeviceID),
 			zap.Int("metrics", len(metrics)))

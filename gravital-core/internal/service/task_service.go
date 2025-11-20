@@ -192,7 +192,31 @@ func (s *taskService) List(ctx context.Context, req *ListTaskRequest) ([]*model.
 }
 
 func (s *taskService) GetSentinelTasks(ctx context.Context, sentinelID string) ([]*model.CollectionTask, error) {
-	return s.taskRepo.GetBySentinelID(ctx, sentinelID)
+	tasks, err := s.taskRepo.GetBySentinelID(ctx, sentinelID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 为每个任务合并设备的连接配置
+	for _, task := range tasks {
+		if task.Device != nil && task.Device.ConnectionConfig != nil && len(task.Device.ConnectionConfig) > 0 {
+			// 如果任务的 Config 为空，初始化为空 map
+			if task.Config == nil {
+				task.Config = make(map[string]interface{})
+			}
+
+			// 将设备的连接配置合并到任务配置中
+			// 只有当任务配置中不存在该字段时，才从设备配置中复制
+			// JSONB 类型本身就是 map[string]interface{}
+			for key, value := range task.Device.ConnectionConfig {
+				if _, exists := task.Config[key]; !exists {
+					task.Config[key] = value
+				}
+			}
+		}
+	}
+
+	return tasks, nil
 }
 
 func (s *taskService) ReportExecution(ctx context.Context, taskID string, req *ReportExecutionRequest) error {

@@ -240,7 +240,7 @@ func (s *forwarderService) IngestMetrics(ctx context.Context, metrics []*forward
 		return fmt.Errorf("failed to forward metrics: %w", err)
 	}
 
-	s.logger.Debug("Ingested metrics", zap.Int("count", len(metrics)))
+	s.logger.Info("Queued metrics for forwarding", zap.Int("count", len(metrics)))
 	return nil
 }
 

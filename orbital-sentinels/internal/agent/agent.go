@@ -179,6 +179,7 @@ func (a *Agent) initialize() error {
 	if a.config.Sender.Mode == "core" || a.config.Sender.Mode == "hybrid" {
 		coreSender := sender.NewCoreSender(
 			a.config.Core.URL,
+			a.config.Sentinel.ID,
 			a.config.Core.APIToken,
 			a.config.Sender.Timeout,
 		)

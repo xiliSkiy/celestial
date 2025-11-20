@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"compress/gzip"
+	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/celestial/gravital-core/internal/forwarder"
@@ -140,9 +143,50 @@ func (h *ForwarderHandler) ListForwarders(c *gin.Context) {
 		return
 	}
 
+	// 获取所有转发器的统计信息
+	allStats, err := h.service.GetAllStats(c.Request.Context())
+	if err != nil {
+		h.logger.Warn("Failed to get forwarder stats", zap.Error(err))
+	}
+
+	// 将统计信息合并到配置中
+	items := make([]map[string]interface{}, 0, len(configs))
+	for _, config := range configs {
+		item := map[string]interface{}{
+			"id":              config.ID,
+			"name":            config.Name,
+			"type":            config.Type,
+			"enabled":         config.Enabled,
+			"endpoint":        config.Endpoint,
+			"auth_config":     config.AuthConfig,
+			"batch_size":      config.BatchSize,
+			"flush_interval":  config.FlushInterval,
+			"retry_times":     config.RetryTimes,
+			"timeout_seconds": config.TimeoutSeconds,
+			"created_at":      config.CreatedAt,
+			"updated_at":      config.UpdatedAt,
+			"success_count":   int64(0),
+			"failure_count":   int64(0),
+			"avg_latency":     int64(0),
+		}
+
+		// 如果有统计信息，添加到结果中
+		if allStats != nil {
+			if fwdStats, ok := allStats[config.Name].(map[string]interface{}); ok {
+				if stats, ok := fwdStats["stats"].(forwarder.Stats); ok {
+					item["success_count"] = stats.SuccessCount
+					item["failure_count"] = stats.FailedCount
+					item["avg_latency"] = stats.AvgLatencyMs
+				}
+			}
+		}
+
+		items = append(items, item)
+	}
+
 	SuccessResponse(c, gin.H{
-		"total": len(configs),
-		"items": configs,
+		"total": len(items),
+		"items": items,
 	})
 }
 
@@ -159,7 +203,31 @@ func (h *ForwarderHandler) IngestMetrics(c *gin.Context) {
 		Metrics []*forwarder.Metric `json:"metrics"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// 检查是否是 gzip 压缩数据
+	var reader io.Reader = c.Request.Body
+	if c.GetHeader("Content-Encoding") == "gzip" {
+		gzipReader, err := gzip.NewReader(c.Request.Body)
+		if err != nil {
+			h.logger.Error("Failed to create gzip reader", zap.Error(err))
+			ErrorResponse(c, http.StatusBadRequest, 40001, "invalid gzip data: "+err.Error())
+			return
+		}
+		defer gzipReader.Close()
+		reader = gzipReader
+	}
+
+	// 读取并解析 JSON
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		h.logger.Error("Failed to read request body", zap.Error(err))
+		ErrorResponse(c, http.StatusBadRequest, 40001, "failed to read body: "+err.Error())
+		return
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.logger.Error("Failed to unmarshal JSON",
+			zap.Error(err),
+			zap.String("body_preview", string(body[:min(len(body), 200)])))
 		ErrorResponse(c, http.StatusBadRequest, 40001, err.Error())
 		return
 	}

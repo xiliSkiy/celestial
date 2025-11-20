@@ -235,7 +235,7 @@ func (m *Manager) flush(batch []*Metric) {
 
 	wg.Wait()
 
-	m.logger.Debug("Flushed metrics batch",
+	m.logger.Info("Flushed metrics batch",
 		zap.Int("metrics", len(batch)),
 		zap.Int("forwarders", len(forwarders)))
 }

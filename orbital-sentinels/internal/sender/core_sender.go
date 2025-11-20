@@ -17,21 +17,23 @@ import (
 
 // CoreSender 中心端发送器
 type CoreSender struct {
-	client  *http.Client
-	url     string
-	token   string
-	breaker *CircuitBreaker
+	client     *http.Client
+	url        string
+	sentinelID string
+	token      string
+	breaker    *CircuitBreaker
 }
 
 // NewCoreSender 创建中心端发送器
-func NewCoreSender(url, token string, timeout time.Duration) *CoreSender {
+func NewCoreSender(url, sentinelID, token string, timeout time.Duration) *CoreSender {
 	return &CoreSender{
 		client: &http.Client{
 			Timeout: timeout,
 		},
-		url:     url,
-		token:   token,
-		breaker: NewCircuitBreaker(5, 30*time.Second),
+		url:        url,
+		sentinelID: sentinelID,
+		token:      token,
+		breaker:    NewCircuitBreaker(5, 30*time.Second),
 	}
 }
 
@@ -68,6 +70,7 @@ func (cs *CoreSender) Send(ctx context.Context, metrics []*plugin.Metric) error 
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("X-Sentinel-ID", cs.sentinelID)
 	req.Header.Set("X-API-Token", cs.token)
 
 	// 发送请求

@@ -30,13 +30,29 @@ func Init(level string, format string, output string, filePath string) error {
 	var encoderConfig zapcore.EncoderConfig
 	if format == "json" {
 		encoderConfig = zap.NewProductionEncoderConfig()
+		encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	} else {
-		encoderConfig = zap.NewDevelopmentEncoderConfig()
+		// text 格式使用更简洁的配置
+		encoderConfig = zapcore.EncoderConfig{
+			TimeKey:        "T",
+			LevelKey:       "L",
+			NameKey:        "N",
+			CallerKey:      "C",
+			FunctionKey:    zapcore.OmitKey,
+			MessageKey:     "M",
+			StacktraceKey:  "S",
+			LineEnding:     zapcore.DefaultLineEnding,
+			EncodeLevel:    zapcore.CapitalColorLevelEncoder, // 带颜色的级别
+			EncodeTime:     zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05"), // 简洁的时间格式
+			EncodeDuration: zapcore.SecondsDurationEncoder,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		}
 	}
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-	// 启用调用者信息（包含文件名和行号）
-	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+	// JSON 格式启用调用者信息
+	if format == "json" {
+		encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+	}
 
 	// 创建编码器
 	var encoder zapcore.Encoder
@@ -71,7 +87,14 @@ func Init(level string, format string, output string, filePath string) error {
 	core := zapcore.NewCore(encoder, writeSyncer, zapLevel)
 
 	// 创建 logger
-	globalLogger = zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel))
+	// 对于 text 格式，只在 Fatal 级别添加 stacktrace，减少日志噪音
+	// 对于 JSON 格式，在 Error 级别添加 stacktrace
+	stacktraceLevel := zapcore.FatalLevel
+	if format == "json" {
+		stacktraceLevel = zapcore.ErrorLevel
+	}
+	// AddCallerSkip(1) 跳过封装函数，显示实际调用位置
+	globalLogger = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(stacktraceLevel))
 
 	return nil
 }
