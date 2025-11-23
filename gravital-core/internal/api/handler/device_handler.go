@@ -236,3 +236,20 @@ func (h *DeviceHandler) DeleteGroup(c *gin.Context) {
 	})
 }
 
+// GetTags 获取所有设备标签
+func (h *DeviceHandler) GetTags(c *gin.Context) {
+	tags, err := h.deviceService.GetAllTags(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "获取标签列表失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": tags,
+	})
+}
+

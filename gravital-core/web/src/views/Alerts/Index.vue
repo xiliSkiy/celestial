@@ -1,6 +1,92 @@
 <template>
   <div class="alerts">
     <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+      <!-- 告警概览 -->
+      <el-tab-pane label="告警概览" name="overview">
+        <el-card v-loading="loading">
+          <div v-if="aggregations.length === 0" class="empty-state">
+            <el-empty description="暂无活跃告警" />
+          </div>
+          
+          <div v-else class="aggregation-list">
+            <el-card 
+              v-for="agg in aggregations" 
+              :key="agg.rule_id"
+              class="aggregation-card"
+              shadow="hover"
+            >
+              <div class="agg-header">
+                <el-tag :type="getSeverityType(agg.severity)" size="large">
+                  {{ agg.severity }}
+                </el-tag>
+                <h3>{{ agg.rule_name }}</h3>
+                <el-badge :value="agg.firing_count" :type="agg.firing_count > 0 ? 'danger' : 'info'" />
+              </div>
+              
+              <div class="agg-description">
+                {{ agg.description || '无描述' }}
+              </div>
+              
+              <div class="agg-stats">
+                <div class="stat-item">
+                  <span class="stat-label">总计</span>
+                  <span class="stat-value">{{ agg.total_count }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">告警中</span>
+                  <span class="stat-value danger">{{ agg.firing_count }}</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">已确认</span>
+                  <span class="stat-value warning">{{ agg.acked_count }}</span>
+                </div>
+              </div>
+              
+              <div class="agg-time">
+                <span>首次: {{ agg.first_fired }}</span>
+                <span>最近: {{ agg.last_fired }}</span>
+              </div>
+              
+              <div class="agg-actions">
+                <el-button size="small" @click="viewRuleEvents(agg.rule_id)">
+                  查看详情
+                </el-button>
+                <el-button 
+                  size="small" 
+                  type="success" 
+                  @click="handleResolveByRule(agg.rule_id)"
+                  :loading="resolvingRuleId === agg.rule_id"
+                >
+                  全部解决
+                </el-button>
+              </div>
+              
+              <!-- 展开显示受影响的设备 -->
+              <el-collapse v-model="expandedRules" class="device-collapse">
+                <el-collapse-item :name="agg.rule_id">
+                  <template #title>
+                    <span class="collapse-title">
+                      受影响设备 ({{ agg.devices.length }})
+                    </span>
+                  </template>
+                  <el-table :data="agg.devices" size="small">
+                    <el-table-column prop="device_id" label="设备ID" width="200" />
+                    <el-table-column label="状态" width="100">
+                      <template #default="{ row }">
+                        <el-tag :type="getStatusType(row.status)" size="small">
+                          {{ getStatusText(row.status) }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="triggered_at" label="触发时间" />
+                  </el-table>
+                </el-collapse-item>
+              </el-collapse>
+            </el-card>
+          </div>
+        </el-card>
+      </el-tab-pane>
+      
       <!-- 告警规则 -->
       <el-tab-pane label="告警规则" name="rules">
         <el-card class="toolbar-card">
@@ -33,7 +119,7 @@
 
         <el-card class="table-card">
           <el-table :data="rules" v-loading="loading">
-            <el-table-column prop="name" label="规则名称" width="200" />
+            <el-table-column prop="rule_name" label="规则名称" width="200" />
             <el-table-column label="级别" width="120">
               <template #default="{ row }">
                 <el-tag :type="getSeverityType(row.severity)">
@@ -41,17 +127,34 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="metric_name" label="指标" width="150" />
-            <el-table-column label="条件" width="150">
+            <el-table-column prop="condition" label="条件" width="200" />
+            <el-table-column label="持续时间" width="120">
               <template #default="{ row }">
-                {{ row.operator }} {{ row.threshold }}
+                {{ formatDuration(row.duration) }}
               </template>
             </el-table-column>
-            <el-table-column prop="duration" label="持续时间" width="120" />
             <el-table-column prop="description" label="描述" />
+            <el-table-column label="通知" width="80">
+              <template #default="{ row }">
+                <el-tag 
+                  v-if="row.notification_config?.enabled" 
+                  type="success" 
+                  size="small"
+                >
+                  已启用
+                </el-tag>
+                <el-tag 
+                  v-else 
+                  type="info" 
+                  size="small"
+                >
+                  未启用
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <StatusBadge :status="row.enabled ? 'online' : 'offline'" />
+                <StatusBadge :status="row.enabled ? 'enabled' : 'disabled'" />
               </template>
             </el-table-column>
             <el-table-column label="操作" width="200" fixed="right">
@@ -89,30 +192,51 @@
       <el-tab-pane label="告警事件" name="events">
         <el-card class="toolbar-card">
           <div class="toolbar">
-            <el-select
-              v-model="eventQuery.severity"
-              placeholder="级别"
-              style="width: 120px"
-              clearable
-              @change="fetchEvents"
-            >
-              <el-option label="全部" value="" />
-              <el-option label="Critical" value="critical" />
-              <el-option label="Warning" value="warning" />
-              <el-option label="Info" value="info" />
-            </el-select>
-            <el-select
-              v-model="eventQuery.status"
-              placeholder="状态"
-              style="width: 120px"
-              clearable
-              @change="fetchEvents"
-            >
-              <el-option label="全部" value="" />
-              <el-option label="告警中" value="firing" />
-              <el-option label="已解决" value="resolved" />
-              <el-option label="已确认" value="acknowledged" />
-            </el-select>
+            <div class="toolbar-left">
+              <el-button 
+                v-if="selectedEvents.length > 0"
+                size="small"
+                @click="handleBatchAcknowledge"
+                :loading="batchAcknowledging"
+              >
+                批量确认 ({{ selectedEvents.length }})
+              </el-button>
+              <el-button 
+                v-if="selectedEvents.length > 0"
+                size="small"
+                type="success"
+                @click="handleBatchResolve"
+                :loading="batchResolving"
+              >
+                批量解决 ({{ selectedEvents.length }})
+              </el-button>
+            </div>
+            <div class="toolbar-right">
+              <el-select
+                v-model="eventQuery.severity"
+                placeholder="级别"
+                style="width: 120px"
+                clearable
+                @change="fetchEvents"
+              >
+                <el-option label="全部" value="" />
+                <el-option label="Critical" value="critical" />
+                <el-option label="Warning" value="warning" />
+                <el-option label="Info" value="info" />
+              </el-select>
+              <el-select
+                v-model="eventQuery.status"
+                placeholder="状态"
+                style="width: 120px"
+                clearable
+                @change="fetchEvents"
+              >
+                <el-option label="全部" value="" />
+                <el-option label="告警中" value="firing" />
+                <el-option label="已解决" value="resolved" />
+                <el-option label="已确认" value="acknowledged" />
+              </el-select>
+            </div>
           </div>
         </el-card>
 
@@ -126,6 +250,11 @@
             >
               <div class="event-item">
                 <div class="event-header">
+                  <el-checkbox 
+                    v-model="selectedEventIds" 
+                    :label="event.id"
+                    @change="handleEventSelection"
+                  />
                   <el-tag :type="getSeverityType(event.severity)">
                     {{ event.severity }}
                   </el-tag>
@@ -180,7 +309,7 @@
     <el-dialog
       v-model="ruleDialogVisible"
       :title="ruleDialogTitle"
-      width="600px"
+      width="800px"
       @close="resetRuleForm"
     >
       <el-form
@@ -189,8 +318,8 @@
         :rules="ruleRules"
         label-width="100px"
       >
-        <el-form-item label="规则名称" prop="name">
-          <el-input v-model="ruleForm.name" placeholder="请输入规则名称" />
+        <el-form-item label="规则名称" prop="rule_name">
+          <el-input v-model="ruleForm.rule_name" placeholder="请输入规则名称" />
         </el-form-item>
         
         <el-form-item label="描述" prop="description">
@@ -211,7 +340,7 @@
         </el-form-item>
         
         <el-form-item label="指标名称" prop="metric_name">
-          <el-input v-model="ruleForm.metric_name" placeholder="例如: cpu_usage" />
+          <el-input v-model="ruleForm.metric_name" placeholder="例如: device_status, cpu_usage" />
         </el-form-item>
         
         <el-form-item label="条件" prop="operator">
@@ -237,14 +366,24 @@
         </el-form-item>
         
         <el-form-item label="持续时间" prop="duration">
-          <el-input v-model="ruleForm.duration" placeholder="例如: 5m, 10m">
+          <el-input-number 
+            v-model="ruleForm.duration" 
+            :min="1"
+            placeholder="持续时间（分钟）"
+            style="width: 100%"
+          >
             <template #append>分钟</template>
-          </el-input>
+          </el-input-number>
         </el-form-item>
         
         <el-form-item label="启用">
           <el-switch v-model="ruleForm.enabled" />
         </el-form-item>
+        
+        <!-- 通知配置 -->
+        <el-divider content-position="left">通知配置</el-divider>
+        
+        <NotificationConfig v-model="ruleForm.notification_config" />
       </el-form>
       
       <template #footer>
@@ -261,14 +400,27 @@
 import { ref, reactive, onMounted } from 'vue'
 import { alertApi } from '@/api/alert'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import NotificationConfig from '@/components/alert/NotificationConfig.vue'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import type { NotificationConfig as NotificationConfigType } from '@/types/alert'
 
-const activeTab = ref('rules')
+const activeTab = ref('overview')
 const loading = ref(false)
 const submitting = ref(false)
 const acknowledgingId = ref<number | null>(null)
 const resolvingId = ref<number | null>(null)
+const resolvingRuleId = ref<number | null>(null)
+const batchAcknowledging = ref(false)
+const batchResolving = ref(false)
+
+// 聚合视图
+const aggregations = ref<any[]>([])
+const expandedRules = ref<number[]>([])
+
+// 批量操作
+const selectedEventIds = ref<number[]>([])
+const selectedEvents = ref<any[]>([])
 
 // 规则相关
 const ruleQuery = reactive({
@@ -287,19 +439,27 @@ const ruleFormRef = ref<FormInstance>()
 const currentRule = ref<any>(null)
 
 const ruleForm = reactive({
-  name: '',
+  rule_name: '',
   description: '',
   severity: 'warning' as 'critical' | 'warning' | 'info',
   metric_name: '',
   operator: '>' as '>' | '<' | '>=' | '<=' | '==' | '!=',
   threshold: 0,
-  duration: '5m',
+  duration: 5,
   enabled: true,
-  labels: {}
+  filters: {},
+  notification_config: {
+    enabled: false,
+    channels: [],
+    dedupe_interval: 300,
+    escalation_enabled: false,
+    escalation_after: 1800,
+    escalation_channels: []
+  } as NotificationConfigType
 })
 
 const ruleRules: FormRules = {
-  name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
+  rule_name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
   severity: [{ required: true, message: '请选择级别', trigger: 'change' }],
   metric_name: [{ required: true, message: '请输入指标名称', trigger: 'blur' }],
   operator: [{ required: true, message: '请选择运算符', trigger: 'change' }],
@@ -346,12 +506,103 @@ const fetchEvents = async () => {
   }
 }
 
+// 获取聚合信息
+const fetchAggregations = async () => {
+  loading.value = true
+  try {
+    const res: any = await alertApi.getAggregations()
+    aggregations.value = res.data || []
+  } catch (error) {
+    ElMessage.error('获取聚合信息失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 // Tab 切换
 const handleTabChange = (tab: string) => {
-  if (tab === 'rules') {
+  if (tab === 'overview') {
+    fetchAggregations()
+  } else if (tab === 'rules') {
     fetchRules()
   } else if (tab === 'events') {
     fetchEvents()
+  }
+}
+
+// 查看规则的所有事件
+const viewRuleEvents = (ruleId: number) => {
+  activeTab.value = 'events'
+  eventQuery.rule_id = ruleId
+  fetchEvents()
+}
+
+// 按规则解决所有告警
+const handleResolveByRule = async (ruleId: number) => {
+  try {
+    await ElMessageBox.confirm('确定要解决该规则的所有告警吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    
+    resolvingRuleId.value = ruleId
+    await alertApi.resolveByRule(ruleId)
+    ElMessage.success('已解决该规则的所有告警')
+    fetchAggregations()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || '操作失败')
+    }
+  } finally {
+    resolvingRuleId.value = null
+  }
+}
+
+// 事件选择
+const handleEventSelection = () => {
+  selectedEvents.value = events.value.filter(e => selectedEventIds.value.includes(e.id))
+}
+
+// 批量确认
+const handleBatchAcknowledge = async () => {
+  if (selectedEventIds.value.length === 0) return
+  
+  batchAcknowledging.value = true
+  try {
+    await alertApi.batchAcknowledge(selectedEventIds.value)
+    ElMessage.success(`已确认 ${selectedEventIds.value.length} 条告警`)
+    selectedEventIds.value = []
+    selectedEvents.value = []
+    fetchEvents()
+    if (activeTab.value === 'overview') {
+      fetchAggregations()
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '批量确认失败')
+  } finally {
+    batchAcknowledging.value = false
+  }
+}
+
+// 批量解决
+const handleBatchResolve = async () => {
+  if (selectedEventIds.value.length === 0) return
+  
+  batchResolving.value = true
+  try {
+    await alertApi.batchResolve(selectedEventIds.value)
+    ElMessage.success(`已解决 ${selectedEventIds.value.length} 条告警`)
+    selectedEventIds.value = []
+    selectedEvents.value = []
+    fetchEvents()
+    if (activeTab.value === 'overview') {
+      fetchAggregations()
+    }
+  } catch (error: any) {
+    ElMessage.error(error.message || '批量解决失败')
+  } finally {
+    batchResolving.value = false
   }
 }
 
@@ -366,16 +617,28 @@ const handleCreateRule = () => {
 const handleEditRule = (row: any) => {
   ruleDialogTitle.value = '编辑规则'
   currentRule.value = row
+  
+  // 解析 condition 字符串，提取 metric_name, operator, threshold
+  const conditionMatch = row.condition?.match(/^(\w+)\s*([><=!]+)\s*(.+)$/)
+  
   Object.assign(ruleForm, {
-    name: row.name,
+    rule_name: row.rule_name,
     description: row.description || '',
     severity: row.severity,
-    metric_name: row.metric_name,
-    operator: row.operator,
-    threshold: row.threshold,
-    duration: row.duration,
+    metric_name: conditionMatch ? conditionMatch[1] : '',
+    operator: conditionMatch ? conditionMatch[2] : '>',
+    threshold: conditionMatch ? parseFloat(conditionMatch[3]) : 0,
+    duration: Math.floor(row.duration / 60), // 转换秒为分钟
     enabled: row.enabled,
-    labels: row.labels || {}
+    filters: row.filters || {},
+    notification_config: row.notification_config || {
+      enabled: false,
+      channels: [],
+      dedupe_interval: 300,
+      escalation_enabled: false,
+      escalation_after: 1800,
+      escalation_channels: []
+    }
   })
   ruleDialogVisible.value = true
 }
@@ -416,11 +679,23 @@ const handleSubmitRule = async () => {
     if (valid) {
       submitting.value = true
       try {
+        // 构建符合后端格式的请求数据
+        const requestData = {
+          rule_name: ruleForm.rule_name,
+          description: ruleForm.description,
+          severity: ruleForm.severity,
+          condition: `${ruleForm.metric_name} ${ruleForm.operator} ${ruleForm.threshold}`,
+          duration: ruleForm.duration * 60, // 转换分钟为秒
+          enabled: ruleForm.enabled,
+          filters: ruleForm.filters || {},
+          notification_config: ruleForm.notification_config
+        }
+        
         if (currentRule.value) {
-          await alertApi.updateRule(currentRule.value.id, ruleForm)
+          await alertApi.updateRule(currentRule.value.id, requestData)
           ElMessage.success('更新成功')
         } else {
-          await alertApi.createRule(ruleForm)
+          await alertApi.createRule(requestData)
           ElMessage.success('创建成功')
         }
         ruleDialogVisible.value = false
@@ -438,16 +713,35 @@ const handleSubmitRule = async () => {
 const resetRuleForm = () => {
   ruleFormRef.value?.resetFields()
   Object.assign(ruleForm, {
-    name: '',
+    rule_name: '',
     description: '',
     severity: 'warning',
     metric_name: '',
     operator: '>',
     threshold: 0,
-    duration: '5m',
+    duration: 5,
     enabled: true,
-    labels: {}
+    notification_config: {
+      enabled: false,
+      channels: [],
+      dedupe_interval: 300,
+      escalation_enabled: false,
+      escalation_after: 1800,
+      escalation_channels: []
+    },
+    filters: {}
   })
+}
+
+// 格式化持续时间（秒转为可读格式）
+const formatDuration = (seconds: number) => {
+  if (seconds < 60) {
+    return `${seconds}秒`
+  } else if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)}分钟`
+  } else {
+    return `${Math.floor(seconds / 3600)}小时`
+  }
 }
 
 // 确认告警
@@ -516,18 +810,123 @@ const getStatusText = (status: string) => {
 }
 
 onMounted(() => {
-  fetchRules()
+  fetchAggregations()
+  
+  // 每 30 秒自动刷新聚合信息
+  setInterval(() => {
+    if (activeTab.value === 'overview') {
+      fetchAggregations()
+    }
+  }, 30000)
 })
 </script>
 
 <style scoped lang="scss">
 .alerts {
+  .empty-state {
+    padding: 40px 0;
+    text-align: center;
+  }
+  
+  .aggregation-list {
+    display: grid;
+    gap: 16px;
+  }
+  
+  .aggregation-card {
+    .agg-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      
+      h3 {
+        flex: 1;
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+    }
+    
+    .agg-description {
+      color: var(--el-text-color-secondary);
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    
+    .agg-stats {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 12px;
+      padding: 12px;
+      background: var(--el-fill-color-lighter);
+      border-radius: 4px;
+      
+      .stat-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        
+        .stat-label {
+          font-size: 12px;
+          color: var(--el-text-color-secondary);
+        }
+        
+        .stat-value {
+          font-size: 20px;
+          font-weight: 600;
+          
+          &.danger {
+            color: var(--el-color-danger);
+          }
+          
+          &.warning {
+            color: var(--el-color-warning);
+          }
+        }
+      }
+    }
+    
+    .agg-time {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      margin-bottom: 12px;
+    }
+    
+    .agg-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    
+    .device-collapse {
+      margin-top: 12px;
+      border-top: 1px solid var(--el-border-color);
+      padding-top: 12px;
+      
+      .collapse-title {
+        font-size: 14px;
+        font-weight: 500;
+      }
+    }
+  }
+  
   .toolbar-card {
     margin-bottom: 20px;
 
     .toolbar {
       display: flex;
+      justify-content: space-between;
+      align-items: center;
       gap: 10px;
+      
+      .toolbar-left,
+      .toolbar-right {
+        display: flex;
+        gap: 10px;
+      }
     }
   }
 
@@ -550,6 +949,10 @@ onMounted(() => {
         align-items: center;
         gap: 10px;
         margin-bottom: 10px;
+        
+        :deep(.el-checkbox) {
+          margin-right: 8px;
+        }
 
         .event-title {
           font-weight: 600;

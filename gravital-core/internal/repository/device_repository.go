@@ -16,6 +16,7 @@ type DeviceRepository interface {
 	Update(ctx context.Context, device *model.Device) error
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, filter *DeviceFilter) ([]*model.Device, int64, error)
+	GetAllTags(ctx context.Context) ([]string, error)
 }
 
 // DeviceFilter 设备过滤条件
@@ -26,6 +27,7 @@ type DeviceFilter struct {
 	DeviceType string
 	Status     string
 	Keyword    string
+	Labels     []string
 }
 
 type deviceRepository struct {
@@ -86,6 +88,14 @@ func (r *deviceRepository) List(ctx context.Context, filter *DeviceFilter) ([]*m
 	if filter.Keyword != "" {
 		query = query.Where("name LIKE ? OR device_id LIKE ?", "%"+filter.Keyword+"%", "%"+filter.Keyword+"%")
 	}
+	
+	// 标签过滤
+	if len(filter.Labels) > 0 {
+		for _, label := range filter.Labels {
+			// 标签格式: key:value
+			query = query.Where("labels::text LIKE ?", "%"+label+"%")
+		}
+	}
 
 	// 计算总数
 	if err := query.Count(&total).Error; err != nil {
@@ -97,5 +107,33 @@ func (r *deviceRepository) List(ctx context.Context, filter *DeviceFilter) ([]*m
 	err := query.Preload("Group").Offset(offset).Limit(filter.PageSize).Find(&devices).Error
 
 	return devices, total, err
+}
+
+func (r *deviceRepository) GetAllTags(ctx context.Context) ([]string, error) {
+	var devices []*model.Device
+	if err := r.db.WithContext(ctx).Select("labels").Find(&devices).Error; err != nil {
+		return nil, err
+	}
+
+	// 收集所有唯一的标签
+	tagSet := make(map[string]bool)
+	for _, device := range devices {
+		if device.Labels != nil {
+			for key, value := range device.Labels {
+				if strValue, ok := value.(string); ok {
+					tag := key + ":" + strValue
+					tagSet[tag] = true
+				}
+			}
+		}
+	}
+
+	// 转换为切片
+	tags := make([]string, 0, len(tagSet))
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+
+	return tags, nil
 }
 

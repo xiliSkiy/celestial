@@ -58,8 +58,8 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	deviceHandler := handler.NewDeviceHandler(deviceService)
 	sentinelHandler := handler.NewSentinelHandler(sentinelService)
 	taskHandler := handler.NewTaskHandler(taskService)
-	alertHandler := handler.NewAlertHandler(alertService)
-	forwarderHandler := handler.NewForwarderHandler(forwarderService, log)
+	alertHandler := handler.NewAlertHandler(alertService, db)
+	forwarderHandler := handler.NewForwarderHandler(forwarderService, db, log)
 	dashboardHandler := handler.NewDashboardHandler(db)
 	userHandler := handler.NewUserHandler(db, cfg.Auth.BcryptCost)
 
@@ -83,6 +83,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 			devices := authenticated.Group("/devices")
 			{
 				devices.GET("", deviceHandler.List)
+				devices.GET("/tags", deviceHandler.GetTags)
 				devices.GET("/:id", deviceHandler.Get)
 				devices.POST("", middleware.RequirePermission("devices.write"), deviceHandler.Create)
 				devices.PUT("/:id", middleware.RequirePermission("devices.write"), deviceHandler.Update)
@@ -109,6 +110,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 				alertRules.PUT("/:id", middleware.RequirePermission("alerts.write"), alertHandler.UpdateRule)
 				alertRules.DELETE("/:id", middleware.RequirePermission("alerts.delete"), alertHandler.DeleteRule)
 				alertRules.POST("/:id/toggle", middleware.RequirePermission("alerts.write"), alertHandler.ToggleRule)
+				alertRules.POST("/:id/resolve-all", middleware.RequirePermission("alerts.write"), alertHandler.ResolveByRule)
 			}
 
 			// 告警事件
@@ -119,10 +121,13 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 				alertEvents.POST("/:id/acknowledge", alertHandler.AcknowledgeEvent)
 				alertEvents.POST("/:id/resolve", alertHandler.ResolveEvent)
 				alertEvents.POST("/:id/silence", alertHandler.SilenceEvent)
+				alertEvents.POST("/batch-acknowledge", middleware.RequirePermission("alerts.write"), alertHandler.BatchAcknowledge)
+				alertEvents.POST("/batch-resolve", middleware.RequirePermission("alerts.write"), alertHandler.BatchResolve)
 			}
 
-			// 告警统计
+			// 告警统计和聚合
 			authenticated.GET("/alert-stats", alertHandler.GetStats)
+			authenticated.GET("/alert-aggregations", alertHandler.GetAggregations)
 
 			// 任务管理（管理端）
 			tasks := authenticated.Group("/tasks")

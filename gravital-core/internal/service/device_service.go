@@ -20,6 +20,7 @@ type DeviceService interface {
 	Delete(ctx context.Context, id uint) error
 	List(ctx context.Context, req *ListDeviceRequest) ([]*model.Device, int64, error)
 	TestConnection(ctx context.Context, id uint) (*TestConnectionResult, error)
+	GetAllTags(ctx context.Context) ([]string, error)
 }
 
 // CreateDeviceRequest 创建设备请求
@@ -42,12 +43,13 @@ type UpdateDeviceRequest struct {
 
 // ListDeviceRequest 设备列表请求
 type ListDeviceRequest struct {
-	Page       int    `form:"page"`
-	PageSize   int    `form:"page_size"`
-	GroupID    *uint  `form:"group_id"`
-	DeviceType string `form:"device_type"`
-	Status     string `form:"status"`
-	Keyword    string `form:"keyword"`
+	Page       int      `form:"page"`
+	PageSize   int      `form:"page_size"`
+	GroupID    *uint    `form:"group_id"`
+	DeviceType string   `form:"device_type"`
+	Status     string   `form:"status"`
+	Keyword    string   `form:"keyword"`
+	Labels     []string `form:"labels"`
 }
 
 // TestConnectionResult 连接测试结果
@@ -147,9 +149,14 @@ func (s *deviceService) List(ctx context.Context, req *ListDeviceRequest) ([]*mo
 		DeviceType: req.DeviceType,
 		Status:     req.Status,
 		Keyword:    req.Keyword,
+		Labels:     req.Labels,
 	}
 
 	return s.deviceRepo.List(ctx, filter)
+}
+
+func (s *deviceService) GetAllTags(ctx context.Context) ([]string, error) {
+	return s.deviceRepo.GetAllTags(ctx)
 }
 
 func (s *deviceService) TestConnection(ctx context.Context, id uint) (*TestConnectionResult, error) {

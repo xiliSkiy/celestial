@@ -43,6 +43,23 @@
             <el-option label="交换机" value="switch" />
             <el-option label="路由器" value="router" />
           </el-select>
+          <el-select
+            v-model="query.labels"
+            placeholder="标签"
+            style="width: 200px"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            @change="fetchDevices"
+          >
+            <el-option
+              v-for="tag in availableTags"
+              :key="tag"
+              :label="tag"
+              :value="tag"
+            />
+          </el-select>
         </div>
       </div>
     </el-card>
@@ -158,6 +175,10 @@
             show-password
           />
         </el-form-item>
+        
+        <el-form-item label="标签">
+          <TagInput v-model="form.labels" />
+        </el-form-item>
       </el-form>
       
       <template #footer>
@@ -173,6 +194,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDeviceStore } from '@/stores/device'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import TagInput from '@/components/common/TagInput.vue'
 import { Plus, Upload, Download, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -185,13 +207,15 @@ const query = reactive({
   size: 20,
   keyword: '',
   status: '',
-  device_type: ''
+  device_type: '',
+  labels: [] as string[]
 })
 
 const dialogVisible = ref(false)
 const dialogTitle = ref('添加设备')
 const formRef = ref<FormInstance>()
 const currentDevice = ref<any>(null)
+const availableTags = ref<string[]>([])
 
 const form = reactive({
   name: '',
@@ -215,6 +239,15 @@ const rules: FormRules = {
 
 const fetchDevices = () => {
   deviceStore.fetchDevices(query)
+}
+
+const fetchAvailableTags = async () => {
+  try {
+    const tags = await deviceStore.fetchDeviceTags()
+    availableTags.value = tags
+  } catch (error) {
+    console.error('获取标签列表失败', error)
+  }
 }
 
 const handleCreate = () => {
@@ -296,6 +329,7 @@ const handleExport = () => {
 
 onMounted(() => {
   fetchDevices()
+  fetchAvailableTags()
 })
 </script>
 

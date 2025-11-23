@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/celestial/gravital-core/internal/service"
 )
@@ -13,12 +14,14 @@ import (
 // AlertHandler 告警处理器
 type AlertHandler struct {
 	alertService service.AlertService
+	db           *gorm.DB
 }
 
 // NewAlertHandler 创建告警处理器
-func NewAlertHandler(alertService service.AlertService) *AlertHandler {
+func NewAlertHandler(alertService service.AlertService, db *gorm.DB) *AlertHandler {
 	return &AlertHandler{
 		alertService: alertService,
+		db:           db,
 	}
 }
 
@@ -273,7 +276,8 @@ func (h *AlertHandler) AcknowledgeEvent(c *gin.Context) {
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// 使用 ShouldBindJSON，但忽略 EOF 错误（空请求体）
+	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    40001,
 			"message": "参数错误: " + err.Error(),
@@ -282,7 +286,10 @@ func (h *AlertHandler) AcknowledgeEvent(c *gin.Context) {
 	}
 
 	// 获取当前用户 ID
-	userID, _ := c.Get("user_id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		userID = uint(0) // 如果没有用户信息，使用 0
+	}
 
 	if err := h.alertService.AcknowledgeEvent(c.Request.Context(), uint(id), userID.(uint), req.Comment); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -312,7 +319,8 @@ func (h *AlertHandler) ResolveEvent(c *gin.Context) {
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// 使用 ShouldBindJSON，但忽略 EOF 错误（空请求体）
+	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    40001,
 			"message": "参数错误: " + err.Error(),
@@ -394,6 +402,120 @@ func (h *AlertHandler) GetStats(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": stats,
+	})
+}
+
+// GetAggregations 获取告警聚合信息
+func (h *AlertHandler) GetAggregations(c *gin.Context) {
+	aggregations, err := service.GetAlertAggregations(c.Request.Context(), h.db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "获取聚合信息失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": aggregations,
+	})
+}
+
+// BatchAcknowledge 批量确认告警
+func (h *AlertHandler) BatchAcknowledge(c *gin.Context) {
+	var req struct {
+		IDs     []uint `json:"ids" binding:"required"`
+		Comment string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		userID = uint(0)
+	}
+
+	if err := service.BatchAcknowledgeEvents(c.Request.Context(), h.db, req.IDs, userID.(uint), req.Comment); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "批量确认失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
+	})
+}
+
+// BatchResolve 批量解决告警
+func (h *AlertHandler) BatchResolve(c *gin.Context) {
+	var req struct {
+		IDs     []uint `json:"ids" binding:"required"`
+		Comment string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	if err := service.BatchResolveEvents(c.Request.Context(), h.db, req.IDs, req.Comment); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "批量解决失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
+	})
+}
+
+// ResolveByRule 解决某个规则的所有告警
+func (h *AlertHandler) ResolveByRule(c *gin.Context) {
+	ruleID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "无效的规则 ID",
+		})
+		return
+	}
+
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil && err.Error() != "EOF" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	if err := service.ResolveEventsByRule(c.Request.Context(), h.db, uint(ruleID), req.Comment); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "解决失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
 	})
 }
 

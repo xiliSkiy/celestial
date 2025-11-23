@@ -32,6 +32,7 @@ export interface DeviceQuery {
   group_id?: string
   device_type?: string
   status?: string
+  labels?: string[]
 }
 
 // 创建设备请求

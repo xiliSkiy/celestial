@@ -197,14 +197,20 @@ func (s *taskService) GetSentinelTasks(ctx context.Context, sentinelID string) (
 		return nil, err
 	}
 
-	// 为每个任务合并设备的连接配置
+	// 为每个任务合并设备的连接配置和设备类型
 	for _, task := range tasks {
-		if task.Device != nil && task.Device.ConnectionConfig != nil && len(task.Device.ConnectionConfig) > 0 {
-			// 如果任务的 Config 为空，初始化为空 map
-			if task.Config == nil {
-				task.Config = make(map[string]interface{})
-			}
+		// 如果任务的 Config 为空，初始化为空 map
+		if task.Config == nil {
+			task.Config = make(map[string]interface{})
+		}
 
+		// 添加设备类型到配置中（用于状态指标的标签）
+		if task.Device != nil && task.Device.DeviceType != "" {
+			task.Config["device_type"] = task.Device.DeviceType
+		}
+
+		// 合并设备的连接配置
+		if task.Device != nil && task.Device.ConnectionConfig != nil && len(task.Device.ConnectionConfig) > 0 {
 			// 将设备的连接配置合并到任务配置中
 			// 只有当任务配置中不存在该字段时，才从设备配置中复制
 			// JSONB 类型本身就是 map[string]interface{}

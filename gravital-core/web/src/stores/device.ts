@@ -84,6 +84,17 @@ export const useDeviceStore = defineStore('device', () => {
     }
   }
 
+  // 获取所有设备标签
+  const fetchDeviceTags = async () => {
+    try {
+      const res: any = await deviceApi.getDeviceTags()
+      return res as string[]
+    } catch (error) {
+      ElMessage.error('获取设备标签失败')
+      throw error
+    }
+  }
+
   return {
     devices,
     currentDevice,
@@ -95,7 +106,8 @@ export const useDeviceStore = defineStore('device', () => {
     createDevice,
     updateDevice,
     deleteDevice,
-    fetchDeviceGroups
+    fetchDeviceGroups,
+    fetchDeviceTags
   }
 })
 

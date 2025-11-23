@@ -26,7 +26,7 @@
       >
         <div class="forwarder-header">
           <h3>{{ forwarder.name }}</h3>
-          <StatusBadge :status="forwarder.enabled ? 'online' : 'offline'" />
+          <StatusBadge :status="forwarder.enabled ? 'enabled' : 'disabled'" />
         </div>
         
         <div class="forwarder-body">

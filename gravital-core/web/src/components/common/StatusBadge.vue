@@ -9,7 +9,7 @@
 import { computed } from 'vue'
 
 interface Props {
-  status: 'online' | 'offline' | 'error' | 'unknown' | 'firing' | 'resolved' | 'acknowledged'
+  status: 'online' | 'offline' | 'error' | 'unknown' | 'firing' | 'resolved' | 'acknowledged' | 'enabled' | 'disabled'
   text?: string
 }
 
@@ -23,7 +23,9 @@ const statusText = computed(() => {
     unknown: '未知',
     firing: '告警中',
     resolved: '已解决',
-    acknowledged: '已确认'
+    acknowledged: '已确认',
+    enabled: '已启用',
+    disabled: '已禁用'
   }
   return statusMap[props.status] || props.status
 })
@@ -106,6 +108,24 @@ const statusText = computed(() => {
 
     .status-dot {
       background: var(--color-warning);
+    }
+  }
+
+  &.status-enabled {
+    color: var(--color-success);
+    background: rgba(103, 194, 58, 0.1);
+
+    .status-dot {
+      background: var(--color-success);
+    }
+  }
+
+  &.status-disabled {
+    color: var(--color-info);
+    background: rgba(144, 147, 153, 0.1);
+
+    .status-dot {
+      background: var(--color-info);
     }
   }
 }

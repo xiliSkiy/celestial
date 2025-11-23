@@ -66,7 +66,7 @@
             </el-table-column>
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
-                <StatusBadge :status="row.enabled ? 'online' : 'offline'" />
+                <StatusBadge :status="row.enabled ? 'enabled' : 'disabled'" />
               </template>
             </el-table-column>
             <el-table-column prop="last_login" label="最后登录" width="180" />

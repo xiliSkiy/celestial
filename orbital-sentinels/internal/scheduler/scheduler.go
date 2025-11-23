@@ -298,6 +298,23 @@ func (s *Scheduler) runTask(st *ScheduledTask) {
 
 	metrics, err := p.Collect(taskCtx, st.Task)
 
+	// 生成设备状态指标（用于时序库和 PostgreSQL）
+	statusMetric := s.createDeviceStatusMetric(st.Task, err)
+	if metrics == nil {
+		metrics = make([]*plugin.Metric, 0)
+	}
+
+	// 添加调试日志
+	logger.Info("Generated device_status metric",
+		zap.String("device_id", st.Task.DeviceID),
+		zap.Float64("value", statusMetric.Value),
+		zap.Int("metrics_before", len(metrics)))
+
+	metrics = append(metrics, statusMetric)
+
+	logger.Info("After appending device_status",
+		zap.Int("metrics_after", len(metrics)))
+
 	st.mu.Lock()
 	if err != nil {
 		st.LastStatus = TaskStatusFailed
@@ -310,15 +327,15 @@ func (s *Scheduler) runTask(st *ScheduledTask) {
 		st.LastStatus = TaskStatusSuccess
 		st.LastError = nil
 
-		// 调用指标处理器
-		if s.onMetrics != nil {
-			s.onMetrics(metrics, st.Task)
-		}
-
 		logger.Info("Task succeeded",
 			zap.String("task_id", st.Task.TaskID),
 			zap.String("device_id", st.Task.DeviceID),
 			zap.Int("metrics", len(metrics)))
+	}
+
+	// 调用指标处理器（包含状态指标）
+	if s.onMetrics != nil {
+		s.onMetrics(metrics, st.Task)
 	}
 
 	// 更新下次执行时间
@@ -329,6 +346,34 @@ func (s *Scheduler) runTask(st *ScheduledTask) {
 	// 上报执行结果
 	if s.onReport != nil {
 		s.onReport(st, time.Since(startTime), len(metrics))
+	}
+}
+
+// createDeviceStatusMetric 创建设备状态指标
+func (s *Scheduler) createDeviceStatusMetric(task *plugin.CollectionTask, collectErr error) *plugin.Metric {
+	// 状态值：1=online, 0=offline
+	statusValue := 1.0
+	if collectErr != nil {
+		statusValue = 0.0
+	}
+
+	// 获取设备类型（从 DeviceConfig 中提取，如果没有则为 unknown）
+	deviceType := "unknown"
+	if dt, ok := task.DeviceConfig["device_type"].(string); ok {
+		deviceType = dt
+	}
+
+	return &plugin.Metric{
+		Name:      "device_status",
+		Value:     statusValue,
+		Timestamp: time.Now().Unix(), // 使用秒级时间戳，与其他指标保持一致
+		Labels: map[string]string{
+			"device_id":   task.DeviceID,
+			"device_type": deviceType,
+			"task_id":     task.TaskID,
+			"plugin":      task.PluginName,
+		},
+		Type: plugin.MetricTypeGauge,
 	}
 }
 

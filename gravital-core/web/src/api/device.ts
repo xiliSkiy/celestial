@@ -49,6 +49,10 @@ export const deviceApi = {
     request.get('/v1/devices/export', { 
       params, 
       responseType: 'blob' 
-    })
+    }),
+  
+  // 获取所有设备标签
+  getDeviceTags: () => 
+    request.get<string[]>('/v1/devices/tags')
 }
 

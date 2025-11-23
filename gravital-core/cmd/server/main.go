@@ -13,11 +13,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/celestial/gravital-core/internal/alert/engine"
 	"github.com/celestial/gravital-core/internal/api/router"
 	"github.com/celestial/gravital-core/internal/pkg/cache"
 	"github.com/celestial/gravital-core/internal/pkg/config"
 	"github.com/celestial/gravital-core/internal/pkg/database"
 	"github.com/celestial/gravital-core/internal/pkg/logger"
+	"github.com/celestial/gravital-core/internal/service"
 )
 
 var (
@@ -27,7 +29,7 @@ var (
 )
 
 var (
-	configPath = flag.String("c", "config/config.yaml", "配置文件路径")
+	configPath  = flag.String("c", "config/config.yaml", "配置文件路径")
 	showVersion = flag.Bool("v", false, "显示版本信息")
 )
 
@@ -101,6 +103,34 @@ func main() {
 	}
 	logger.Info("Forwarder service started")
 
+	// 启动设备监控服务
+	logger.Info("Starting device monitor...")
+	deviceMonitor := service.NewDeviceMonitor(db, logger.Get(), &service.DeviceMonitorConfig{
+		CheckInterval:  1 * time.Minute,
+		OfflineTimeout: 5 * time.Minute,
+	})
+	deviceMonitor.Start()
+	logger.Info("Device monitor started")
+
+	// 启动告警引擎
+	logger.Info("Starting alert engine...")
+
+	// 从转发器配置中查找 VictoriaMetrics 端点
+	vmURL := ""
+	for _, target := range cfg.Forwarder.Targets {
+		if target.Type == "victoriametrics" && target.Enabled {
+			vmURL = target.Endpoint
+			break
+		}
+	}
+
+	alertEngine := engine.NewAlertEngine(db, logger.Get(), &engine.Config{
+		VMURL:         vmURL,
+		CheckInterval: 30 * time.Second, // 每 30 秒检查一次
+	})
+	alertEngine.Start()
+	logger.Info("Alert engine started")
+
 	// 创建 HTTP 服务器
 	srv := &http.Server{
 		Addr:           cfg.Server.GetAddr(),
@@ -129,6 +159,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// 停止告警引擎
+	logger.Info("Stopping alert engine...")
+	alertEngine.Stop()
+
+	// 停止设备监控服务
+	logger.Info("Stopping device monitor...")
+	deviceMonitor.Stop()
+
 	// 停止转发服务
 	logger.Info("Stopping forwarder service...")
 	if err := forwarderService.Stop(); err != nil {
@@ -141,4 +179,3 @@ func main() {
 
 	logger.Info("Server exited")
 }
-

@@ -2,27 +2,32 @@ package handler
 
 import (
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/celestial/gravital-core/internal/forwarder"
 	"github.com/celestial/gravital-core/internal/model"
 	"github.com/celestial/gravital-core/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // ForwarderHandler 转发器处理器
 type ForwarderHandler struct {
 	service service.ForwarderService
+	db      *gorm.DB
 	logger  *zap.Logger
 }
 
 // NewForwarderHandler 创建转发器处理器
-func NewForwarderHandler(service service.ForwarderService, logger *zap.Logger) *ForwarderHandler {
+func NewForwarderHandler(service service.ForwarderService, db *gorm.DB, logger *zap.Logger) *ForwarderHandler {
 	return &ForwarderHandler{
 		service: service,
+		db:      db,
 		logger:  logger,
 	}
 }
@@ -249,6 +254,18 @@ func (h *ForwarderHandler) IngestMetrics(c *gin.Context) {
 		}
 	}
 
+	// 提取设备状态信息并更新 PostgreSQL
+	deviceStatusMap := h.extractDeviceStatus(req.Metrics)
+	if len(deviceStatusMap) > 0 {
+		if err := h.updateDeviceStatusInDB(c.Request.Context(), deviceStatusMap); err != nil {
+			h.logger.Error("Failed to update device status",
+				zap.Int("device_count", len(deviceStatusMap)),
+				zap.Error(err))
+			// 不中断流程，继续转发指标
+		}
+	}
+
+	// 转发指标到时序库（包含设备状态指标）
 	if err := h.service.IngestMetrics(c.Request.Context(), req.Metrics); err != nil {
 		h.logger.Error("Failed to ingest metrics",
 			zap.String("sentinel_id", sentinelID),
@@ -260,7 +277,8 @@ func (h *ForwarderHandler) IngestMetrics(c *gin.Context) {
 
 	h.logger.Info("Ingested metrics",
 		zap.String("sentinel_id", sentinelID),
-		zap.Int("count", len(req.Metrics)))
+		zap.Int("count", len(req.Metrics)),
+		zap.Int("devices_updated", len(deviceStatusMap)))
 
 	SuccessResponse(c, gin.H{
 		"received": len(req.Metrics),
@@ -345,4 +363,82 @@ func (h *ForwarderHandler) TestConnection(c *gin.Context) {
 	}
 
 	SuccessResponse(c, result)
+}
+
+// DeviceStatusInfo 设备状态信息
+type DeviceStatusInfo struct {
+	Status   string
+	LastSeen time.Time
+}
+
+// extractDeviceStatus 从指标中提取设备状态信息
+func (h *ForwarderHandler) extractDeviceStatus(metrics []*forwarder.Metric) map[string]DeviceStatusInfo {
+	statusMap := make(map[string]DeviceStatusInfo)
+
+	for _, m := range metrics {
+		// 只处理 device_status 指标
+		if m.Name != "device_status" {
+			continue
+		}
+
+		// 获取 device_id
+		deviceID, ok := m.Labels["device_id"]
+		if !ok || deviceID == "" {
+			continue
+		}
+
+		// 解析状态值（1=online, 0=offline）
+		status := "offline"
+		if m.Value == 1.0 {
+			status = "online"
+		}
+
+		// 使用指标的时间戳
+		lastSeen := time.UnixMilli(m.Timestamp)
+
+		statusMap[deviceID] = DeviceStatusInfo{
+			Status:   status,
+			LastSeen: lastSeen,
+		}
+	}
+
+	return statusMap
+}
+
+// updateDeviceStatusInDB 更新设备状态到 PostgreSQL
+func (h *ForwarderHandler) updateDeviceStatusInDB(ctx context.Context, statusMap map[string]DeviceStatusInfo) error {
+	if len(statusMap) == 0 {
+		return nil
+	}
+
+	// 批量更新设备状态
+	for deviceID, info := range statusMap {
+		updates := map[string]interface{}{
+			"status":     info.Status,
+			"last_seen":  info.LastSeen,
+			"updated_at": time.Now(),
+		}
+
+		result := h.db.WithContext(ctx).
+			Model(&model.Device{}).
+			Where("device_id = ?", deviceID).
+			Updates(updates)
+
+		if result.Error != nil {
+			h.logger.Error("Failed to update device status",
+				zap.String("device_id", deviceID),
+				zap.String("status", info.Status),
+				zap.Error(result.Error))
+			// 继续处理其他设备，不中断
+			continue
+		}
+
+		if result.RowsAffected > 0 {
+			h.logger.Debug("Updated device status",
+				zap.String("device_id", deviceID),
+				zap.String("status", info.Status))
+		}
+	}
+
+	return nil
 }
