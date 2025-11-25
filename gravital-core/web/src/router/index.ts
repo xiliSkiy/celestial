@@ -56,6 +56,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '告警管理' }
       },
       {
+        path: 'topology',
+        name: 'Topology',
+        component: () => import('@/views/Topology/Index.vue'),
+        meta: { title: '网络拓扑' }
+      },
+      {
+        path: 'topology/:id',
+        name: 'TopologyDetail',
+        component: () => import('@/views/Topology/Detail.vue'),
+        meta: { title: '拓扑详情' }
+      },
+      {
         path: 'forwarders',
         name: 'Forwarders',
         component: () => import('@/views/Forwarders/List.vue'),

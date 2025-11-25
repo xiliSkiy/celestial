@@ -43,6 +43,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	taskRepo := repository.NewTaskRepository(db)
 	alertRepo := repository.NewAlertRepository(db)
 	forwarderRepo := repository.NewForwarderRepository(db)
+	topologyRepo := repository.NewTopologyRepository(db)
 
 	// 获取 logger
 	log := logger.Get()
@@ -68,6 +69,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	taskService := service.NewTaskService(taskRepo, deviceRepo, sentinelRepo)
 	alertService := service.NewAlertService(alertRepo)
 	forwarderService := service.NewForwarderService(forwarderRepo, cfg, log)
+	topologyService := service.NewTopologyService(topologyRepo, deviceRepo, log)
 
 	// 初始化 Handler
 	authHandler := handler.NewAuthHandler(authService)
@@ -76,6 +78,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	taskHandler := handler.NewTaskHandler(taskService)
 	alertHandler := handler.NewAlertHandler(alertService, db)
 	forwarderHandler := handler.NewForwarderHandler(forwarderService, db, log)
+	topologyHandler := handler.NewTopologyHandler(topologyService, log)
 	dashboardHandler := handler.NewDashboardHandler(db)
 	userHandler := handler.NewUserHandler(db, cfg.Auth.BcryptCost)
 
@@ -169,6 +172,39 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 				sentinels.GET("/:id", sentinelHandler.Get)
 				sentinels.DELETE("/:id", middleware.RequirePermission("sentinels.delete"), sentinelHandler.Delete)
 				sentinels.POST("/:id/control", middleware.RequirePermission("sentinels.control"), sentinelHandler.Control)
+			}
+
+			// 拓扑管理
+			topologies := authenticated.Group("/topologies")
+			{
+				topologies.GET("", topologyHandler.ListTopologies)
+				topologies.POST("", middleware.RequirePermission("topology.write"), topologyHandler.CreateTopology)
+				topologies.GET("/:id", topologyHandler.GetTopology)
+				topologies.PUT("/:id", middleware.RequirePermission("topology.write"), topologyHandler.UpdateTopology)
+				topologies.DELETE("/:id", middleware.RequirePermission("topology.delete"), topologyHandler.DeleteTopology)
+
+				// 节点管理
+				topologies.POST("/:id/nodes", middleware.RequirePermission("topology.write"), topologyHandler.AddNode)
+				topologies.PATCH("/:id/nodes/:node_id/position", middleware.RequirePermission("topology.write"), topologyHandler.UpdateNodePosition)
+				topologies.PATCH("/:id/nodes/batch", middleware.RequirePermission("topology.write"), topologyHandler.BatchUpdateNodes)
+				topologies.DELETE("/:id/nodes/:node_id", middleware.RequirePermission("topology.write"), topologyHandler.DeleteNode)
+
+				// 链路管理
+				topologies.POST("/:id/links", middleware.RequirePermission("topology.write"), topologyHandler.AddLink)
+				topologies.PATCH("/:id/links/:link_id/status", middleware.RequirePermission("topology.write"), topologyHandler.UpdateLinkStatus)
+				topologies.DELETE("/:id/links/:link_id", middleware.RequirePermission("topology.write"), topologyHandler.DeleteLink)
+
+				// 布局
+				topologies.POST("/:id/layout", middleware.RequirePermission("topology.write"), topologyHandler.ApplyLayout)
+
+				// 分析
+				topologies.POST("/:id/analyze/path", topologyHandler.AnalyzePath)
+				topologies.POST("/:id/analyze/impact", topologyHandler.AnalyzeImpact)
+
+				// 版本管理
+				topologies.GET("/:id/versions", topologyHandler.GetVersions)
+				topologies.POST("/:id/versions", middleware.RequirePermission("topology.write"), topologyHandler.CreateSnapshot)
+				topologies.POST("/:id/versions/:version/restore", middleware.RequirePermission("topology.write"), topologyHandler.RestoreVersion)
 			}
 
 			// 系统管理

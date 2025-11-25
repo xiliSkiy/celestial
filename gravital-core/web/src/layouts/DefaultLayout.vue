@@ -54,6 +54,14 @@
         </el-menu-item>
         
         <el-menu-item 
+          v-if="hasPermission('topology.read')" 
+          index="/topology"
+        >
+          <el-icon><Share /></el-icon>
+          <template #title>网络拓扑</template>
+        </el-menu-item>
+        
+        <el-menu-item 
           v-if="hasPermission('forwarders.read')" 
           index="/forwarders"
         >
