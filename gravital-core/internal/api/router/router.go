@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 
 	"github.com/celestial/gravital-core/internal/api/handler"
@@ -11,6 +12,7 @@ import (
 	"github.com/celestial/gravital-core/internal/pkg/logger"
 	"github.com/celestial/gravital-core/internal/repository"
 	"github.com/celestial/gravital-core/internal/service"
+	"github.com/celestial/gravital-core/internal/timeseries"
 )
 
 // Setup 设置路由
@@ -45,9 +47,23 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	// 获取 logger
 	log := logger.Get()
 
+	// 初始化时序数据库客户端
+	var tsClient *timeseries.Client
+	if cfg.TimeSeries.Enabled && cfg.TimeSeries.URL != "" {
+		tsClient = timeseries.NewClient(cfg.TimeSeries.URL, log)
+		log.Info("Time series database client initialized", zap.String("url", cfg.TimeSeries.URL))
+
+		// 健康检查
+		if err := tsClient.Health(); err != nil {
+			log.Warn("Time series database health check failed", zap.Error(err))
+		}
+	} else {
+		log.Info("Time series database is not configured, metrics will not be available")
+	}
+
 	// 初始化 Service
 	authService := service.NewAuthService(userRepo, jwtManager, cfg.Auth.BcryptCost)
-	deviceService := service.NewDeviceService(deviceRepo)
+	deviceService := service.NewDeviceService(deviceRepo, db, tsClient)
 	sentinelService := service.NewSentinelService(sentinelRepo)
 	taskService := service.NewTaskService(taskRepo, deviceRepo, sentinelRepo)
 	alertService := service.NewAlertService(alertRepo)
@@ -85,6 +101,10 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 				devices.GET("", deviceHandler.List)
 				devices.GET("/tags", deviceHandler.GetTags)
 				devices.GET("/:id", deviceHandler.Get)
+				devices.GET("/:id/metrics", deviceHandler.GetMetrics)
+				devices.GET("/:id/tasks", deviceHandler.GetTasks)
+				devices.GET("/:id/alert-rules", deviceHandler.GetAlertRules)
+				devices.GET("/:id/history", deviceHandler.GetHistory)
 				devices.POST("", middleware.RequirePermission("devices.write"), deviceHandler.Create)
 				devices.PUT("/:id", middleware.RequirePermission("devices.write"), deviceHandler.Update)
 				devices.DELETE("/:id", middleware.RequirePermission("devices.delete"), deviceHandler.Delete)

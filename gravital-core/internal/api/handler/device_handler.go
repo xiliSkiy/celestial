@@ -253,3 +253,119 @@ func (h *DeviceHandler) GetTags(c *gin.Context) {
 	})
 }
 
+// GetMetrics 获取设备监控指标
+func (h *DeviceHandler) GetMetrics(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "无效的设备 ID",
+		})
+		return
+	}
+
+	// 获取时间范围参数
+	hours := c.DefaultQuery("hours", "24")
+	hoursInt, _ := strconv.Atoi(hours)
+
+	metrics, err := h.deviceService.GetMetrics(c.Request.Context(), uint(id), hoursInt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "获取监控指标失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": metrics,
+	})
+}
+
+// GetTasks 获取设备采集任务
+func (h *DeviceHandler) GetTasks(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "无效的设备 ID",
+		})
+		return
+	}
+
+	tasks, err := h.deviceService.GetTasks(c.Request.Context(), uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "获取采集任务失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": tasks,
+	})
+}
+
+// GetAlertRules 获取设备告警规则
+func (h *DeviceHandler) GetAlertRules(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "无效的设备 ID",
+		})
+		return
+	}
+
+	rules, err := h.deviceService.GetAlertRules(c.Request.Context(), uint(id))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "获取告警规则失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": rules,
+	})
+}
+
+// GetHistory 获取设备历史记录
+func (h *DeviceHandler) GetHistory(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    40001,
+			"message": "无效的设备 ID",
+		})
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	history, total, err := h.deviceService.GetHistory(c.Request.Context(), uint(id), page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "获取历史记录失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"items": history,
+			"total": total,
+			"page":  page,
+			"page_size": pageSize,
+		},
+	})
+}
+

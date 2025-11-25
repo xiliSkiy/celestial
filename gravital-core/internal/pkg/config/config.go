@@ -9,17 +9,18 @@ import (
 
 // Config 全局配置
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server"`
-	Database  DatabaseConfig  `mapstructure:"database"`
-	Redis     RedisConfig     `mapstructure:"redis"`
-	Auth      AuthConfig      `mapstructure:"auth"`
-	Alert     AlertConfig     `mapstructure:"alert"`
-	Forwarder ForwarderConfig `mapstructure:"forwarder"`
-	Sentinel  SentinelConfig  `mapstructure:"sentinel"`
-	Scheduler SchedulerConfig `mapstructure:"scheduler"`
-	Logging   LoggingConfig   `mapstructure:"logging"`
-	Grafana   GrafanaConfig   `mapstructure:"grafana"`
-	System    SystemConfig    `mapstructure:"system"`
+	Server     ServerConfig     `mapstructure:"server"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	Redis      RedisConfig      `mapstructure:"redis"`
+	Auth       AuthConfig       `mapstructure:"auth"`
+	Alert      AlertConfig      `mapstructure:"alert"`
+	Forwarder  ForwarderConfig  `mapstructure:"forwarder"`
+	Sentinel   SentinelConfig   `mapstructure:"sentinel"`
+	Scheduler  SchedulerConfig  `mapstructure:"scheduler"`
+	Logging    LoggingConfig    `mapstructure:"logging"`
+	Grafana    GrafanaConfig    `mapstructure:"grafana"`
+	System     SystemConfig     `mapstructure:"system"`
+	TimeSeries TimeSeriesConfig `mapstructure:"timeseries"`
 }
 
 // ServerConfig 服务器配置
@@ -146,6 +147,13 @@ type SystemConfig struct {
 	EnableMetrics       bool `mapstructure:"enable_metrics"`
 	EnableProfiling     bool `mapstructure:"enable_profiling"`
 	ProfilingPort       int  `mapstructure:"profiling_port"`
+}
+
+// TimeSeriesConfig 时序数据库配置
+type TimeSeriesConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	URL     string `mapstructure:"url"`
+	Timeout time.Duration `mapstructure:"timeout"`
 }
 
 var globalConfig *Config

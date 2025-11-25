@@ -53,6 +53,22 @@ export const deviceApi = {
   
   // 获取所有设备标签
   getDeviceTags: () => 
-    request.get<string[]>('/v1/devices/tags')
+    request.get<string[]>('/v1/devices/tags'),
+  
+  // 获取设备监控指标
+  getDeviceMetrics: (id: string, hours: number = 24) =>
+    request.get(`/v1/devices/${id}/metrics`, { params: { hours } }),
+  
+  // 获取设备采集任务
+  getDeviceTasks: (id: string) =>
+    request.get(`/v1/devices/${id}/tasks`),
+  
+  // 获取设备告警规则
+  getDeviceAlertRules: (id: string) =>
+    request.get(`/v1/devices/${id}/alert-rules`),
+  
+  // 获取设备历史记录
+  getDeviceHistory: (id: string, params: { page?: number; page_size?: number }) =>
+    request.get(`/v1/devices/${id}/history`, { params })
 }
 
