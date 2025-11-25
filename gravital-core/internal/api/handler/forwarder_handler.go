@@ -394,7 +394,7 @@ func (h *ForwarderHandler) extractDeviceStatus(metrics []*forwarder.Metric) map[
 		}
 
 		// 使用指标的时间戳
-		lastSeen := time.UnixMilli(m.Timestamp)
+		lastSeen := time.Unix(int64(m.Timestamp), 0)
 
 		statusMap[deviceID] = DeviceStatusInfo{
 			Status:   status,

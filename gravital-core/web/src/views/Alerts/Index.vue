@@ -511,7 +511,7 @@ const fetchAggregations = async () => {
   loading.value = true
   try {
     const res: any = await alertApi.getAggregations()
-    aggregations.value = res.data || []
+    aggregations.value = Array.isArray(res) ? res : []
   } catch (error) {
     ElMessage.error('获取聚合信息失败')
   } finally {
