@@ -155,26 +155,41 @@
         </el-form-item>
         
         <el-form-item label="协议" prop="connection_config.protocol">
-          <el-select v-model="form.connection_config.protocol" placeholder="请选择协议">
+          <el-select 
+            v-model="form.connection_config.protocol" 
+            placeholder="请选择协议"
+            @change="handleProtocolChange"
+          >
             <el-option label="SSH" value="ssh" />
             <el-option label="SNMP" value="snmp" />
             <el-option label="HTTP" value="http" />
             <el-option label="HTTPS" value="https" />
           </el-select>
         </el-form-item>
-        
-        <el-form-item label="用户名" prop="connection_config.username">
-          <el-input v-model="form.connection_config.username" placeholder="请输入用户名" />
+
+        <!-- SNMP 版本选择 -->
+        <el-form-item 
+          v-if="form.connection_config.protocol === 'snmp'"
+          label="SNMP 版本" 
+          prop="connection_config.snmp_version"
+        >
+          <el-select 
+            v-model="form.connection_config.snmp_version" 
+            placeholder="请选择 SNMP 版本"
+            @change="handleSNMPVersionChange"
+          >
+            <el-option label="SNMP v1" value="1" />
+            <el-option label="SNMP v2c" value="2c" />
+            <el-option label="SNMP v3" value="3" />
+          </el-select>
         </el-form-item>
         
-        <el-form-item label="密码" prop="connection_config.password">
-          <el-input
-            v-model="form.connection_config.password"
-            type="password"
-            placeholder="请输入密码"
-            show-password
-          />
-        </el-form-item>
+        <!-- 认证配置组件 -->
+        <AuthConfig
+          :protocol="form.connection_config.protocol"
+          :snmp-version="form.connection_config.snmp_version || '2c'"
+          v-model="form.connection_config"
+        />
         
         <el-form-item label="标签">
           <TagInput v-model="form.labels" />
@@ -195,6 +210,7 @@ import { useRouter } from 'vue-router'
 import { useDeviceStore } from '@/stores/device'
 import StatusBadge from '@/components/common/StatusBadge.vue'
 import TagInput from '@/components/common/TagInput.vue'
+import AuthConfig from '@/components/common/AuthConfig.vue'
 import { Plus, Upload, Download, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -224,8 +240,15 @@ const form = reactive({
     host: '',
     port: 22,
     protocol: 'ssh',
-    username: '',
-    password: ''
+    snmp_version: '2c',
+    auth: {
+      type: 'ssh',
+      config: {
+        username: '',
+        password: '',
+        auth_method: 'password'
+      }
+    }
   },
   labels: {}
 })
@@ -259,13 +282,79 @@ const handleCreate = () => {
 const handleEdit = (row: any) => {
   dialogTitle.value = '编辑设备'
   currentDevice.value = row
+  
+  // 处理连接配置，确保 auth 结构正确
+  const connectionConfig = { ...row.connection_config }
+  
+  // 如果旧数据没有 auth 结构，进行兼容性转换
+  if (!connectionConfig.auth) {
+    connectionConfig.auth = convertLegacyAuth(connectionConfig)
+  }
+  
   Object.assign(form, {
     name: row.name,
     device_type: row.device_type,
-    connection_config: { ...row.connection_config },
+    connection_config: connectionConfig,
     labels: { ...row.labels }
   })
   dialogVisible.value = true
+}
+
+// 兼容旧数据格式，转换为新的 auth 结构
+function convertLegacyAuth(config: any) {
+  if (config.protocol === 'snmp') {
+    const version = config.snmp_version || '2c'
+    if (version === '3') {
+      return {
+        type: 'snmp_v3',
+        config: {
+          username: config.username || '',
+          security_level: config.security_level || 'noAuthNoPriv',
+          auth_protocol: config.auth_protocol || 'MD5',
+          auth_password: config.auth_password || '',
+          priv_protocol: config.priv_protocol || 'DES',
+          priv_password: config.priv_password || '',
+          context_name: config.context_name || ''
+        }
+      }
+    } else {
+      return {
+        type: `snmp_${version}`,
+        config: {
+          community: config.community || config.password || 'public'
+        }
+      }
+    }
+  } else if (config.protocol === 'ssh') {
+    return {
+      type: 'ssh',
+      config: {
+        username: config.username || '',
+        password: config.password || '',
+        private_key: config.private_key || '',
+        passphrase: config.passphrase || '',
+        auth_method: config.private_key ? 'key' : 'password'
+      }
+    }
+  } else if (config.protocol === 'http' || config.protocol === 'https') {
+    return {
+      type: config.protocol,
+      config: {
+        auth_type: config.api_key ? 'apikey' : config.bearer_token ? 'bearer' : config.username ? 'basic' : 'none',
+        username: config.username || '',
+        password: config.password || '',
+        api_key: config.api_key || '',
+        api_key_header: config.api_key_header || 'X-API-Key',
+        bearer_token: config.bearer_token || '',
+        custom_headers: config.custom_headers || {}
+      }
+    }
+  }
+  
+  return {
+    type: 'none',
+    config: {}
+  }
 }
 
 const handleView = (row: any) => {
@@ -303,6 +392,29 @@ const handleSubmit = async () => {
   })
 }
 
+const handleProtocolChange = () => {
+  // 协议变化时，重置端口和认证配置
+  const defaultPorts: Record<string, number> = {
+    ssh: 22,
+    snmp: 161,
+    http: 80,
+    https: 443
+  }
+  
+  form.connection_config.port = defaultPorts[form.connection_config.protocol] || 22
+  
+  // 重置 SNMP 版本（如果不是 SNMP 协议）
+  if (form.connection_config.protocol !== 'snmp') {
+    form.connection_config.snmp_version = undefined
+  } else if (!form.connection_config.snmp_version) {
+    form.connection_config.snmp_version = '2c'
+  }
+}
+
+const handleSNMPVersionChange = () => {
+  // SNMP 版本变化时，认证配置会在 AuthConfig 组件中自动处理
+}
+
 const resetForm = () => {
   formRef.value?.resetFields()
   Object.assign(form, {
@@ -312,8 +424,15 @@ const resetForm = () => {
       host: '',
       port: 22,
       protocol: 'ssh',
-      username: '',
-      password: ''
+      snmp_version: '2c',
+      auth: {
+        type: 'ssh',
+        config: {
+          username: '',
+          password: '',
+          auth_method: 'password'
+        }
+      }
     },
     labels: {}
   })

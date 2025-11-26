@@ -19,6 +19,7 @@ import (
 	"github.com/celestial/gravital-core/internal/pkg/config"
 	"github.com/celestial/gravital-core/internal/pkg/database"
 	"github.com/celestial/gravital-core/internal/pkg/logger"
+	"github.com/celestial/gravital-core/internal/repository"
 	"github.com/celestial/gravital-core/internal/service"
 )
 
@@ -112,6 +113,26 @@ func main() {
 	deviceMonitor.Start()
 	logger.Info("Device monitor started")
 
+	// 启动拓扑自动发现调度器
+	logger.Info("Starting topology discovery scheduler...")
+	// 需要从 router 中获取服务，或者在这里重新创建
+	// 为了简化，我们在这里重新创建必要的依赖
+	topologyRepo := repository.NewTopologyRepository(db)
+	deviceRepo := repository.NewDeviceRepository(db)
+	topologyDiscoveryService := service.NewTopologyDiscoveryService(topologyRepo, deviceRepo, logger.Get())
+	topologyDiscoveryScheduler := service.NewTopologyDiscoveryScheduler(
+		topologyRepo,
+		topologyDiscoveryService,
+		db,
+		logger.Get(),
+		&service.TopologyDiscoverySchedulerConfig{
+			CheckInterval:   5 * time.Minute, // 每 5 分钟检查一次
+			CleanupInterval: 1 * time.Hour,   // 每小时清理一次过期数据
+		},
+	)
+	topologyDiscoveryScheduler.Start()
+	logger.Info("Topology discovery scheduler started")
+
 	// 启动告警引擎
 	logger.Info("Starting alert engine...")
 
@@ -166,6 +187,10 @@ func main() {
 	// 停止设备监控服务
 	logger.Info("Stopping device monitor...")
 	deviceMonitor.Stop()
+
+	// 停止拓扑自动发现调度器
+	logger.Info("Stopping topology discovery scheduler...")
+	topologyDiscoveryScheduler.Stop()
 
 	// 停止转发服务
 	logger.Info("Stopping forwarder service...")

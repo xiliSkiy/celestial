@@ -114,3 +114,8 @@ system:
   enable_profiling: false
   profiling_port: 6060
 
+# 时序数据库配置
+timeseries:
+  enabled: true
+  url: "http://localhost:8428"     # VictoriaMetrics URL
+  timeout: 30s

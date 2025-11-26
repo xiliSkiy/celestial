@@ -46,24 +46,30 @@ type TopologyService interface {
 	// LLDP 邻居
 	UpsertLLDPNeighbor(ctx context.Context, neighbor *model.LLDPNeighbor) error
 	GetLLDPNeighbors(ctx context.Context, deviceID string) ([]model.LLDPNeighbor, error)
+	
+	// 自动发现
+	DiscoverTopology(ctx context.Context, topologyID uint) (*DiscoverTopologyResponse, error)
 }
 
 type topologyService struct {
-	topologyRepo repository.TopologyRepository
-	deviceRepo   repository.DeviceRepository
-	logger       *zap.Logger
+	topologyRepo        repository.TopologyRepository
+	deviceRepo          repository.DeviceRepository
+	discoveryService    TopologyDiscoveryService
+	logger              *zap.Logger
 }
 
 // NewTopologyService 创建拓扑服务实例
 func NewTopologyService(
 	topologyRepo repository.TopologyRepository,
 	deviceRepo repository.DeviceRepository,
+	discoveryService TopologyDiscoveryService,
 	logger *zap.Logger,
 ) TopologyService {
 	return &topologyService{
-		topologyRepo: topologyRepo,
-		deviceRepo:   deviceRepo,
-		logger:       logger,
+		topologyRepo:     topologyRepo,
+		deviceRepo:       deviceRepo,
+		discoveryService: discoveryService,
+		logger:           logger,
 	}
 }
 
@@ -756,5 +762,32 @@ func (s *topologyService) UpsertLLDPNeighbor(ctx context.Context, neighbor *mode
 // GetLLDPNeighbors 获取 LLDP 邻居
 func (s *topologyService) GetLLDPNeighbors(ctx context.Context, deviceID string) ([]model.LLDPNeighbor, error) {
 	return s.topologyRepo.GetLLDPNeighborsByDeviceID(ctx, deviceID)
+}
+
+// DiscoverTopologyResponse 自动发现响应
+type DiscoverTopologyResponse struct {
+	TopologyID      uint  `json:"topology_id"`
+	DiscoveredNodes int   `json:"discovered_nodes"`
+	DiscoveredLinks int   `json:"discovered_links"`
+	DurationMs      int64 `json:"duration_ms"`
+}
+
+// DiscoverTopology 自动发现拓扑
+func (s *topologyService) DiscoverTopology(ctx context.Context, topologyID uint) (*DiscoverTopologyResponse, error) {
+	startTime := time.Now()
+	
+	result, err := s.discoveryService.DiscoverTopology(ctx, topologyID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover topology: %w", err)
+	}
+	
+	duration := time.Since(startTime)
+	
+	return &DiscoverTopologyResponse{
+		TopologyID:      topologyID,
+		DiscoveredNodes: result.DiscoveredNodes,
+		DiscoveredLinks: result.DiscoveredLinks,
+		DurationMs:      duration.Milliseconds(),
+	}, nil
 }
 

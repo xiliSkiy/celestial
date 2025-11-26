@@ -69,7 +69,9 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	taskService := service.NewTaskService(taskRepo, deviceRepo, sentinelRepo)
 	alertService := service.NewAlertService(alertRepo)
 	forwarderService := service.NewForwarderService(forwarderRepo, cfg, log)
-	topologyService := service.NewTopologyService(topologyRepo, deviceRepo, log)
+	// 初始化拓扑发现服务
+	topologyDiscoveryService := service.NewTopologyDiscoveryService(topologyRepo, deviceRepo, log)
+	topologyService := service.NewTopologyService(topologyRepo, deviceRepo, topologyDiscoveryService, log)
 
 	// 初始化 Handler
 	authHandler := handler.NewAuthHandler(authService)
@@ -77,7 +79,7 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 	sentinelHandler := handler.NewSentinelHandler(sentinelService)
 	taskHandler := handler.NewTaskHandler(taskService)
 	alertHandler := handler.NewAlertHandler(alertService, db)
-	forwarderHandler := handler.NewForwarderHandler(forwarderService, db, log)
+	forwarderHandler := handler.NewForwarderHandler(forwarderService, topologyService, db, log)
 	topologyHandler := handler.NewTopologyHandler(topologyService, log)
 	dashboardHandler := handler.NewDashboardHandler(db)
 	userHandler := handler.NewUserHandler(db, cfg.Auth.BcryptCost)
@@ -205,6 +207,9 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 				topologies.GET("/:id/versions", topologyHandler.GetVersions)
 				topologies.POST("/:id/versions", middleware.RequirePermission("topology.write"), topologyHandler.CreateSnapshot)
 				topologies.POST("/:id/versions/:version/restore", middleware.RequirePermission("topology.write"), topologyHandler.RestoreVersion)
+
+				// 自动发现
+				topologies.POST("/:id/discover", middleware.RequirePermission("topology.write"), topologyHandler.DiscoverTopology)
 			}
 
 			// 系统管理
@@ -269,6 +274,13 @@ func Setup(cfg *config.Config, db *gorm.DB) (*gin.Engine, service.ForwarderServi
 		data.Use(middleware.SentinelAuth())
 		{
 			data.POST("/ingest", forwarderHandler.IngestMetrics)
+		}
+
+		// 拓扑数据 API（Sentinel 调用）
+		topologyData := v1.Group("/topology")
+		topologyData.Use(middleware.SentinelAuth())
+		{
+			topologyData.POST("/lldp", topologyHandler.IngestLLDP)
 		}
 
 		// 转发器管理（需要认证）

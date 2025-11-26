@@ -57,6 +57,11 @@ func (s *Sender) SetCoreSender(coreSender *CoreSender) {
 	s.coreSender = coreSender
 }
 
+// GetCoreSender 获取中心端发送器
+func (s *Sender) GetCoreSender() *CoreSender {
+	return s.coreSender
+}
+
 // SetDirectSender 设置直连发送器
 func (s *Sender) SetDirectSender(directSender *DirectSender) {
 	s.directSender = directSender

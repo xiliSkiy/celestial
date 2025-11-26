@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/celestial/gravital-core/internal/model"
 	"github.com/celestial/gravital-core/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -647,6 +648,100 @@ func (h *TopologyHandler) RestoreVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code": 0,
 		"data": "success",
+	})
+}
+
+// DiscoverTopology 触发拓扑自动发现
+func (h *TopologyHandler) DiscoverTopology(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    10001,
+			"message": "Invalid topology ID",
+		})
+		return
+	}
+
+	result, err := h.topologyService.DiscoverTopology(c.Request.Context(), uint(id))
+	if err != nil {
+		h.logger.Error("Failed to discover topology", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    10001,
+			"message": "Failed to discover topology: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": result,
+	})
+}
+
+// LLDPNeighborRequest LLDP 邻居请求（用于上报）
+type LLDPNeighborRequest struct {
+	LocalInterface     string `json:"local_interface" binding:"required"`
+	NeighborChassisID  string `json:"neighbor_chassis_id" binding:"required"`
+	NeighborPortID    string `json:"neighbor_port_id" binding:"required"`
+	NeighborSystemName string `json:"neighbor_system_name"`
+	NeighborSystemDesc string `json:"neighbor_system_desc"`
+	NeighborPortDesc   string `json:"neighbor_port_desc"`
+	NeighborMgmtAddr   string `json:"neighbor_mgmt_addr"`
+	TTL                int    `json:"ttl"`
+}
+
+// IngestLLDPRequest LLDP 数据上报请求
+type IngestLLDPRequest struct {
+	DeviceID  string                `json:"device_id" binding:"required"`
+	Neighbors []LLDPNeighborRequest `json:"neighbors" binding:"required"`
+}
+
+// IngestLLDP LLDP 数据上报
+func (h *TopologyHandler) IngestLLDP(c *gin.Context) {
+	var req IngestLLDPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    10001,
+			"message": "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	processed := 0
+	failed := 0
+
+	for _, neighborReq := range req.Neighbors {
+		neighbor := &model.LLDPNeighbor{
+			DeviceID:           req.DeviceID,
+			LocalInterface:     neighborReq.LocalInterface,
+			NeighborChassisID:  neighborReq.NeighborChassisID,
+			NeighborPortID:     neighborReq.NeighborPortID,
+			NeighborSystemName: neighborReq.NeighborSystemName,
+			NeighborSystemDesc: neighborReq.NeighborSystemDesc,
+			NeighborPortDesc:   neighborReq.NeighborPortDesc,
+			NeighborMgmtAddr:   neighborReq.NeighborMgmtAddr,
+			TTL:                neighborReq.TTL,
+		}
+
+		if err := h.topologyService.UpsertLLDPNeighbor(c.Request.Context(), neighbor); err != nil {
+			h.logger.Error("Failed to upsert LLDP neighbor",
+				zap.String("device_id", req.DeviceID),
+				zap.String("local_interface", neighbor.LocalInterface),
+				zap.Error(err))
+			failed++
+			continue
+		}
+
+		processed++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 0,
+		"data": gin.H{
+			"processed": processed,
+			"failed":    failed,
+			"total":     len(req.Neighbors),
+		},
 	})
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/celestial/orbital-sentinels/internal/scheduler"
 	"github.com/celestial/orbital-sentinels/internal/sender"
 	ping "github.com/celestial/orbital-sentinels/plugins/ping"
+	lldp "github.com/celestial/orbital-sentinels/plugins/lldp"
 	"go.uber.org/zap"
 )
 
@@ -272,6 +273,7 @@ func (a *Agent) initialize() error {
 		}
 	})
 
+
 	// 如果配置了中心端 URL 和 Token，创建任务客户端用于从中心端获取任务
 	if a.config.Core.URL != "" && a.config.Core.APIToken != "" {
 		taskClient := client.NewTaskClient(
@@ -336,13 +338,25 @@ func (a *Agent) registerBuiltinPlugins() {
 	pingPlugin := ping.NewPlugin()
 	if err := pingPlugin.Init(nil); err != nil {
 		logger.Error("Failed to initialize ping plugin", zap.Error(err))
-		return
+	} else {
+		if err := a.pluginMgr.RegisterPlugin(pingPlugin); err != nil {
+			logger.Error("Failed to register ping plugin", zap.Error(err))
+		} else {
+			logger.Info("Registered builtin plugin", zap.String("name", "ping"))
+		}
 	}
-	if err := a.pluginMgr.RegisterPlugin(pingPlugin); err != nil {
-		logger.Error("Failed to register ping plugin", zap.Error(err))
-		return
+
+	// 注册 LLDP 插件
+	lldpPlugin := lldp.NewPlugin()
+	if err := lldpPlugin.Init(nil); err != nil {
+		logger.Error("Failed to initialize lldp plugin", zap.Error(err))
+	} else {
+		if err := a.pluginMgr.RegisterPlugin(lldpPlugin); err != nil {
+			logger.Error("Failed to register lldp plugin", zap.Error(err))
+		} else {
+			logger.Info("Registered builtin plugin", zap.String("name", "lldp"))
+		}
 	}
-	logger.Info("Registered builtin plugin", zap.String("name", "ping"))
 }
 
 // loadLocalTasks 加载本地任务配置

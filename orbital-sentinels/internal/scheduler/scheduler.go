@@ -333,7 +333,7 @@ func (s *Scheduler) runTask(st *ScheduledTask) {
 			zap.Int("metrics", len(metrics)))
 	}
 
-	// 调用指标处理器（包含状态指标）
+	// 调用指标处理器（包含状态指标和 LLDP 数据）
 	if s.onMetrics != nil {
 		s.onMetrics(metrics, st.Task)
 	}

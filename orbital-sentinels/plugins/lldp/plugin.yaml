@@ -1,0 +1,46 @@
+meta:
+  name: lldp
+  version: 1.0.0
+  description: LLDP (Link Layer Discovery Protocol) 邻居发现插件
+  author: Celestial Team
+  device_types:
+    - switch
+    - router
+    - network_device
+
+device_fields:
+  - name: host
+    type: string
+    required: true
+    description: 设备 IP 地址或主机名
+
+  - name: protocol
+    type: string
+    required: false
+    default: snmp
+    description: 采集协议 (snmp/ssh)
+
+  - name: snmp_community
+    type: string
+    required: false
+    default: public
+    description: SNMP Community (当 protocol=snmp 时)
+
+  - name: snmp_version
+    type: string
+    required: false
+    default: "2c"
+    description: SNMP 版本 (1/2c/3)
+
+  - name: ssh_username
+    type: string
+    required: false
+    description: SSH 用户名 (当 protocol=ssh 时)
+
+  - name: ssh_password
+    type: password
+    required: false
+    description: SSH 密码 (当 protocol=ssh 时)
+
+config_fields: []
+

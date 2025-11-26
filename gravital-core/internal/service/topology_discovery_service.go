@@ -10,10 +10,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// DiscoverTopologyResult 自动发现结果
+type DiscoverTopologyResult struct {
+	DiscoveredNodes int
+	DiscoveredLinks int
+}
+
 // TopologyDiscoveryService 拓扑自动发现服务
 type TopologyDiscoveryService interface {
 	// 自动发现拓扑
-	DiscoverTopology(ctx context.Context, topologyID uint) error
+	DiscoverTopology(ctx context.Context, topologyID uint) (*DiscoverTopologyResult, error)
 	// 清理过期的 LLDP 邻居
 	CleanupStaleNeighbors(ctx context.Context) error
 }
@@ -38,23 +44,23 @@ func NewTopologyDiscoveryService(
 }
 
 // DiscoverTopology 自动发现拓扑
-func (s *topologyDiscoveryService) DiscoverTopology(ctx context.Context, topologyID uint) error {
+func (s *topologyDiscoveryService) DiscoverTopology(ctx context.Context, topologyID uint) (*DiscoverTopologyResult, error) {
 	s.logger.Info("Starting topology discovery", zap.Uint("topology_id", topologyID))
 
 	// 获取拓扑信息
 	topology, err := s.topologyRepo.GetByID(ctx, topologyID)
 	if err != nil {
-		return fmt.Errorf("failed to get topology: %w", err)
+		return nil, fmt.Errorf("failed to get topology: %w", err)
 	}
 
 	if !topology.IsAutoDiscovery {
-		return fmt.Errorf("topology auto discovery is disabled")
+		return nil, fmt.Errorf("topology auto discovery is disabled")
 	}
 
 	// 获取所有 LLDP 邻居信息
 	neighbors, err := s.topologyRepo.GetAllLLDPNeighbors(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get LLDP neighbors: %w", err)
+		return nil, fmt.Errorf("failed to get LLDP neighbors: %w", err)
 	}
 
 	s.logger.Info("Found LLDP neighbors", zap.Int("count", len(neighbors)))
@@ -63,7 +69,7 @@ func (s *topologyDiscoveryService) DiscoverTopology(ctx context.Context, topolog
 	deviceMap := make(map[string]*model.Device)
 	devices, _, err := s.deviceRepo.List(ctx, &repository.DeviceFilter{})
 	if err != nil {
-		return fmt.Errorf("failed to list devices: %w", err)
+		return nil, fmt.Errorf("failed to list devices: %w", err)
 	}
 
 	for i := range devices {
@@ -74,7 +80,7 @@ func (s *topologyDiscoveryService) DiscoverTopology(ctx context.Context, topolog
 	existingNodes := make(map[string]*model.TopologyNode)
 	nodes, err := s.topologyRepo.GetNodesByTopologyID(ctx, topologyID)
 	if err != nil {
-		return fmt.Errorf("failed to get existing nodes: %w", err)
+		return nil, fmt.Errorf("failed to get existing nodes: %w", err)
 	}
 
 	for i := range nodes {
@@ -85,7 +91,7 @@ func (s *topologyDiscoveryService) DiscoverTopology(ctx context.Context, topolog
 	existingLinks := make(map[string]*model.TopologyLink)
 	links, err := s.topologyRepo.GetLinksByTopologyID(ctx, topologyID)
 	if err != nil {
-		return fmt.Errorf("failed to get existing links: %w", err)
+		return nil, fmt.Errorf("failed to get existing links: %w", err)
 	}
 
 	for i := range links {
@@ -184,7 +190,10 @@ func (s *topologyDiscoveryService) DiscoverTopology(ctx context.Context, topolog
 		zap.Int("discovered_nodes", discoveredNodes),
 		zap.Int("discovered_links", discoveredLinks))
 
-	return nil
+	return &DiscoverTopologyResult{
+		DiscoveredNodes: discoveredNodes,
+		DiscoveredLinks: discoveredLinks,
+	}, nil
 }
 
 // findOrCreateNode 查找或创建节点

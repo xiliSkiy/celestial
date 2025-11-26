@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/celestial/gravital-core/internal/forwarder"
@@ -18,17 +19,24 @@ import (
 
 // ForwarderHandler 转发器处理器
 type ForwarderHandler struct {
-	service service.ForwarderService
-	db      *gorm.DB
-	logger  *zap.Logger
+	service        service.ForwarderService
+	topologyService service.TopologyService
+	db             *gorm.DB
+	logger         *zap.Logger
 }
 
 // NewForwarderHandler 创建转发器处理器
-func NewForwarderHandler(service service.ForwarderService, db *gorm.DB, logger *zap.Logger) *ForwarderHandler {
+func NewForwarderHandler(
+	service service.ForwarderService,
+	topologyService service.TopologyService,
+	db *gorm.DB,
+	logger *zap.Logger,
+) *ForwarderHandler {
 	return &ForwarderHandler{
-		service: service,
-		db:      db,
-		logger:  logger,
+		service:        service,
+		topologyService: topologyService,
+		db:             db,
+		logger:         logger,
 	}
 }
 
@@ -265,6 +273,13 @@ func (h *ForwarderHandler) IngestMetrics(c *gin.Context) {
 		}
 	}
 
+	// 提取并存储 LLDP 邻居数据
+	if err := h.extractAndStoreLLDPData(c.Request.Context(), req.Metrics); err != nil {
+		h.logger.Error("Failed to extract and store LLDP data",
+			zap.Error(err))
+		// 不中断流程，继续转发指标
+	}
+
 	// 转发指标到时序库（包含设备状态指标）
 	if err := h.service.IngestMetrics(c.Request.Context(), req.Metrics); err != nil {
 		h.logger.Error("Failed to ingest metrics",
@@ -438,6 +453,91 @@ func (h *ForwarderHandler) updateDeviceStatusInDB(ctx context.Context, statusMap
 				zap.String("device_id", deviceID),
 				zap.String("status", info.Status))
 		}
+	}
+
+	return nil
+}
+
+// extractAndStoreLLDPData 从指标中提取并存储 LLDP 邻居数据
+func (h *ForwarderHandler) extractAndStoreLLDPData(ctx context.Context, metrics []*forwarder.Metric) error {
+	if h.topologyService == nil {
+		// 如果没有拓扑服务，跳过处理
+		return nil
+	}
+
+	// 按设备分组收集 LLDP 邻居数据
+	deviceNeighbors := make(map[string][]*model.LLDPNeighbor)
+
+	for _, m := range metrics {
+		// 只处理 lldp_neighbor 指标
+		if m.Name != "lldp_neighbor" {
+			continue
+		}
+
+		// 获取 device_id
+		deviceID, ok := m.Labels["device_id"]
+		if !ok || deviceID == "" {
+			h.logger.Warn("LLDP metric missing device_id", zap.String("metric_name", m.Name))
+			continue
+		}
+
+		// 提取 LLDP 邻居信息
+		neighbor := &model.LLDPNeighbor{
+			DeviceID:           deviceID,
+			LocalInterface:     m.Labels["local_interface"],
+			NeighborChassisID:  m.Labels["neighbor_chassis_id"],
+			NeighborPortID:     m.Labels["neighbor_port_id"],
+			NeighborSystemName: m.Labels["neighbor_system_name"],
+			NeighborSystemDesc: m.Labels["neighbor_system_desc"],
+			NeighborPortDesc:   m.Labels["neighbor_port_desc"],
+			NeighborMgmtAddr:   m.Labels["neighbor_mgmt_addr"],
+		}
+
+		// 解析 TTL
+		if ttlStr, ok := m.Labels["ttl"]; ok && ttlStr != "" {
+			if ttl, err := strconv.Atoi(ttlStr); err == nil {
+				neighbor.TTL = ttl
+			}
+		}
+
+		// 验证必要字段
+		if neighbor.LocalInterface == "" || neighbor.NeighborChassisID == "" || neighbor.NeighborPortID == "" {
+			h.logger.Warn("LLDP neighbor missing required fields",
+				zap.String("device_id", deviceID),
+				zap.String("local_interface", neighbor.LocalInterface),
+				zap.String("neighbor_chassis_id", neighbor.NeighborChassisID),
+				zap.String("neighbor_port_id", neighbor.NeighborPortID))
+			continue
+		}
+
+		// 添加到设备邻居列表
+		deviceNeighbors[deviceID] = append(deviceNeighbors[deviceID], neighbor)
+	}
+
+	// 批量存储 LLDP 邻居数据
+	processedCount := 0
+	failedCount := 0
+
+	for deviceID, neighbors := range deviceNeighbors {
+		for _, neighbor := range neighbors {
+			if err := h.topologyService.UpsertLLDPNeighbor(ctx, neighbor); err != nil {
+				h.logger.Error("Failed to upsert LLDP neighbor",
+					zap.String("device_id", deviceID),
+					zap.String("local_interface", neighbor.LocalInterface),
+					zap.String("neighbor_chassis_id", neighbor.NeighborChassisID),
+					zap.Error(err))
+				failedCount++
+				continue
+			}
+			processedCount++
+		}
+	}
+
+	if processedCount > 0 {
+		h.logger.Debug("Stored LLDP neighbors",
+			zap.Int("processed", processedCount),
+			zap.Int("failed", failedCount),
+			zap.Int("devices", len(deviceNeighbors)))
 	}
 
 	return nil
